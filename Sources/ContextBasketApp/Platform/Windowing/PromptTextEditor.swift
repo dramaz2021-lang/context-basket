@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Plain-text editing with attachment drops redirected to the context collection.
+/// Plain-text editing. File/image drops are rejected rather than imported or embedded.
 struct PromptTextEditor: NSViewRepresentable {
     @ObservedObject var store: BasketStore
     let drops: MaterialDropCoordinator
@@ -73,7 +73,10 @@ final class PromptTextView: NSTextView {
     }
     override func draggingExited(_ sender: NSDraggingInfo?) { drops?.end(); super.draggingExited(sender) }
     override func draggingEnded(_ sender: NSDraggingInfo) { drops?.end(); super.draggingEnded(sender) }
-    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { DropProfile.inspect(sender.draggingPasteboard).isSupported }
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let profile = DropProfile.inspect(sender.draggingPasteboard)
+        return profile.isSupported && !profile.hasAttachments
+    }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         if (sender.draggingSource as? NSTextView) === self {
             drops?.end()
@@ -84,8 +87,8 @@ final class PromptTextView: NSTextView {
 
     @discardableResult
     func receiveDrop(_ pasteboard: NSPasteboard, at point: NSPoint) -> Bool {
-        if DropProfile.inspect(pasteboard).hasAttachments { return drops?.receive(pasteboard, at: .prompt) ?? false }
         drops?.end()
+        guard !DropProfile.inspect(pasteboard).hasAttachments else { return false }
         guard let text = DropReader.plainText(pasteboard) else { return false }
         let index = characterIndexForInsertion(at: point)
         insertText(text, replacementRange: NSRange(location: min(index, (string as NSString).length), length: 0))

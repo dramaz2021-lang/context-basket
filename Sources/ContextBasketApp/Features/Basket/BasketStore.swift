@@ -190,6 +190,18 @@ final class BasketStore: ObservableObject {
         item.isReference ? item.sourceURL : item.assetPath.map(library.url(for:))
     }
 
+    func openMaterial(_ item: Material) {
+        guard !item.isLoading else { return }
+        do {
+            switch try MaterialOpenDestination.resolve(item) {
+            case .inApp: preview = item
+            case .sourceFile(let url): SourceFilePreview.shared.show(url)
+            case .website(let url):
+                if !NSWorkspace.shared.open(url) { errorMessage = "暂时无法打开这个网址。" }
+            }
+        } catch { errorMessage = error.localizedDescription }
+    }
+
     private func persist() {
         let stableItems = items.map { item -> Material in
             guard var previous = converting[item.id] else { return item }

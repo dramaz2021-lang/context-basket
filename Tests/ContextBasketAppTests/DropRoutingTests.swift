@@ -47,7 +47,7 @@ import Testing
         #expect(try String(contentsOf: file, encoding: .utf8) == "source")
     }
 
-    @Test func draggingFileOverPromptCollectsCopyWithoutInsertingFilename() async throws {
+    @Test func draggingFileOverPromptIsIgnoredWithoutFeedback() async throws {
         let library = try library()
         defer { try? FileManager.default.removeItem(at: library.directory) }
         let file = library.directory.appendingPathComponent("reference.txt")
@@ -63,15 +63,18 @@ import Testing
         store.setImportMode(.reference)
         let drops = MaterialDropCoordinator(store: store)
         let editor = editor(store: store, drops: drops)
-        #expect(editor.receiveDrop(board, at: .zero))
+        store.dropFeedback = DropFeedback(style: .fileChoices, mode: .reference)
+        #expect(!editor.receiveDrop(board, at: .zero))
+        #expect(!drops.receive(board, at: .prompt))
+        #expect(!drops.receive(board, at: .other))
         try await finishImports(store)
         #expect(editor.string == "保留我的指令")
         #expect(store.prompt == "保留我的指令")
-        #expect(store.items.count == 1)
-        #expect(store.items[0].modeLabel == "副本")
+        #expect(store.items.isEmpty)
+        #expect(store.dropFeedback == nil)
     }
 
-    @Test func rawImageOverPromptBecomesMaterialAndNeverTextAttachment() async throws {
+    @Test func rawImageOverPromptIsIgnoredAndNeverTextAttachment() async throws {
         let library = try library()
         defer { try? FileManager.default.removeItem(at: library.directory) }
         let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
@@ -86,11 +89,12 @@ import Testing
         store.setPrompt("原来的任务")
         let drops = MaterialDropCoordinator(store: store)
         let editor = editor(store: store, drops: drops)
-        #expect(editor.receiveDrop(board, at: .zero))
+        #expect(!editor.receiveDrop(board, at: .zero))
         try await finishImports(store)
         #expect(editor.string == "原来的任务")
-        #expect(store.items.count == 1)
-        #expect(store.items[0].kind == .image)
+        #expect(store.items.isEmpty)
+        #expect(store.prompt == "原来的任务")
+        #expect(store.dropFeedback == nil)
         var containsAttachment = false
         editor.textStorage?.enumerateAttribute(.attachment, in: NSRange(location: 0, length: (editor.string as NSString).length)) { value, _, _ in
             if value != nil { containsAttachment = true }
@@ -125,10 +129,12 @@ import Testing
         let files = DropProfile(hasLocalFiles: true, hasAttachments: true, hasText: true)
         #expect(DropPolicy.feedback(profile: files, location: .collectionLeft) == DropFeedback(style: .fileChoices, mode: .copy))
         #expect(DropPolicy.feedback(profile: files, location: .collectionRight) == DropFeedback(style: .fileChoices, mode: .reference))
-        #expect(DropPolicy.feedback(profile: files, location: .prompt) == DropFeedback(style: .context, overPrompt: true))
+        #expect(DropPolicy.feedback(profile: files, location: .prompt) == nil)
+        #expect(DropPolicy.feedback(profile: files, location: .other) == nil)
         let image = DropProfile(hasAttachments: true)
         #expect(DropPolicy.feedback(profile: image, location: .collectionRight)?.style == .context)
         #expect(DropPolicy.feedback(profile: image, location: .collectionRight)?.mode == .copy)
+        #expect(DropPolicy.feedback(profile: image, location: .prompt) == nil)
         #expect(DropPolicy.feedback(profile: DropProfile(hasText: true), location: .prompt)?.style == .promptText)
         #expect(DropPolicy.feedback(profile: DropProfile(), location: .collectionRight) == nil)
     }

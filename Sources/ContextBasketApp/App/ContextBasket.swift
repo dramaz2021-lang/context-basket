@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 
 @main
 enum ContextBasket {
@@ -95,6 +96,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showShelf() { shelfController.show() }
+
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
+        SourceFilePreview.shared.sourceURL != nil
+    }
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) { SourceFilePreview.shared.begin(panel) }
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) { SourceFilePreview.shared.end(panel) }
     @objc private func pasteMaterials() {
         if let editor = NSApp.keyWindow?.firstResponder as? NSTextView, editor.isEditable { editor.pasteAsPlainText(nil) }
         else { store.paste() }

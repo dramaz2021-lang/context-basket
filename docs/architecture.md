@@ -8,11 +8,13 @@
 | Features/Basket/Material | 材料、用途说明、源地址、导入模式、版本化文档 |
 | Features/Basket/BasketStore | 异步导入/转换、指令编辑、删除撤销、保存协调 |
 | Features/Basket/ShelfView | 预览卡片、悬停操作、模式选择、说明与指令输入 |
-| Features/Basket/MaterialPreview | 原文和 Quick Look；引用预览指向源文件 |
+| Features/Basket/MaterialPreview | 副本和文字的应用内预览 |
+| Features/Basket/MaterialOpenDestination | 按材料类型确定副本、真实源文件或原网址；失效引用报错 |
+| Platform/Windowing/SourceFilePreview | Finder 定位源文件，系统 Quick Look 面板预览同一真实地址 |
 | Platform/DragAndDrop/DropReader | 一份材料选择一种表示，避免多格式重复导入 |
 | Platform/DragAndDrop/DropPolicy | 区分本机文件、图像/临时传输和文字，按落点选择副本、引用或文字编辑 |
 | Platform/DragAndDrop/MaterialDropCoordinator | 共享拖入反馈和导入流程，基于实际区域位置分流 |
-| Platform/Windowing/PromptTextEditor | 原生纯文字编辑器，文件/图片拖入转交上下文，不生成文本附件 |
+| Platform/Windowing/PromptTextEditor | 原生纯文字编辑器，拒绝文件/图片拖入，不生成文本附件 |
 | Platform/DragAndDrop/PromptExporter | 固定格式拼接原文，生成独立导出快照 |
 | Platform/DragAndDrop/PromptDragSource | 原生多文件拖拽和半透明标签 |
 | Platform/Windowing | 非激活置顶面板，区分编辑与材料快捷键 |
@@ -26,11 +28,13 @@
 
 文件拖到上方材料区时展示左右两块色区，落点左侧为副本、右侧为引用。区域边界由真实布局中的 NSView 标记提供，不硬编码编辑框位置。纯图像和文件承诺没有稳定源地址，直接复制。
 
-指令编辑器关闭富文本和图像导入。文件/图像的拖入优先于同一项目的文字表示，统一转交导入流程且强制副本模式；不会把文件名或图像占位符插入指令。文字和网页 URL 使用原生文字插入及撤销。混合附件拖到指令区域时整组作为上下文导入。
+指令编辑器关闭富文本和图像导入。含文件、图像或文件承诺的拖拽进入指令框时整体拒绝，清除此前的接收提示；不会增加材料，也不回退插入同一项目携带的文件名或文字表示。文字和网页 URL 使用原生文字插入及撤销。材料导入只接受上方上下文区的落点，页脚及其他空白区域同样拒绝。
 
 复制模式保留副本，同时记住真实来源以便切换。引用模式保存源地址和可选缩略图，不保存可导出的内容副本。文件承诺只提供临时传输位置，不能把它当源地址。加载期间删除不会让材料重现；转换期间的保存保留转换前的稳定材料。
 
 ## 编辑与导出
+
+点击卡片即打开材料，悬停只显示说明和删除按钮。副本保持应用内预览；源地址先验证原文件存在，再定位 Finder 并将同一 URL 交给系统 Quick Look；网页链接通过系统默认浏览器打开。AppDelegate 参与 Quick Look 控制器生命周期，只有取得面板控制权后才设置数据源。
 
 用户说明、指令均按原文保存。预览使用与导出相同的格式函数。拖动开始时验证材料，生成 exports/<UUID>/PROMPT.txt 以及带序号的副本附件。序号防止同名文件冲突。
 

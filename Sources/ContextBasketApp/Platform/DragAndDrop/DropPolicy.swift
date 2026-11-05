@@ -35,8 +35,10 @@ enum DropPolicy {
     static func feedback(profile: DropProfile, location: DropLocation) -> DropFeedback? {
         guard profile.isSupported else { return nil }
         if location == .prompt {
-            return DropFeedback(style: profile.hasAttachments ? .context : .promptText, overPrompt: true)
+            guard !profile.hasAttachments else { return nil }
+            return DropFeedback(style: .promptText, overPrompt: true)
         }
+        guard location == .collectionLeft || location == .collectionRight else { return nil }
         if profile.hasLocalFiles, location == .collectionLeft || location == .collectionRight {
             return DropFeedback(style: .fileChoices, mode: location == .collectionRight ? .reference : .copy)
         }

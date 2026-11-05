@@ -86,7 +86,7 @@ struct ShelfView: View {
                     VStack(spacing: 10) {
                         Image(systemName: "tray.and.arrow.down.fill").font(.system(size: 30, weight: .light))
                         Text("添加到上下文").font(.system(size: 18, weight: .semibold))
-                        Text(feedback.overPrompt ? "图片和文件会放在这里\n指令框只保留文字" : "松开，收进材料区")
+                        Text("松开，收进材料区")
                             .font(.system(size: 11)).multilineTextAlignment(.center).lineSpacing(4)
                     }
                     .foregroundStyle(.white).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -154,8 +154,7 @@ struct ShelfView: View {
             HStack {
                 Label("给 Agent 的指令", systemImage: "text.bubble").font(.system(size: 11, weight: .medium))
                 Spacer()
-                Text(store.dropFeedback?.overPrompt == true && store.dropFeedback?.style == .context ? "图片、文件将加入上方材料区" : "随材料一起带走")
-                    .font(.system(size: 10)).foregroundStyle(store.dropFeedback?.overPrompt == true ? accent : .white.opacity(0.3))
+                Text("随材料一起带走").font(.system(size: 10)).foregroundStyle(.white.opacity(0.3))
             }.foregroundStyle(.white.opacity(0.65))
             ZStack(alignment: .topLeading) {
                 if store.prompt.isEmpty {
@@ -207,7 +206,7 @@ private struct MaterialCard: View {
     @ViewState private var hovered = false
     private var hasNote: Bool { !(item.note ?? "").isEmpty }
     private var editing: Bool { store.noteEditorID == item.id }
-    private func preview() { if !item.isLoading { store.preview = item } }
+    private func preview() { store.openMaterial(item) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -263,7 +262,6 @@ private struct MaterialCard: View {
     private var actions: some View {
         HStack(spacing: 4) {
             action("text.bubble", label: hasNote ? "编辑文件说明" : "添加文件说明") { store.editNote(item.id) }
-            action("eye", label: "预览材料", run: preview)
             action("xmark", label: "删除材料") { store.remove(item.id) }
         }
     }
