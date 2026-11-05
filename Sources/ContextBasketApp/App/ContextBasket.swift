@@ -1,0 +1,115 @@
+import AppKit
+
+@main
+enum ContextBasket {
+    @MainActor static func main() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        app.setActivationPolicy(.accessory)
+        app.run()
+        withExtendedLifetime(delegate) {}
+    }
+}
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var panel: ShelfPanel!
+    private var store: BasketStore!
+    private var statusItem: NSStatusItem!
+    #if DEBUG
+    private var dragHarness: NSWindow?
+    #endif
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        do {
+            let customDirectory = ProcessInfo.processInfo.environment["CONTEXT_BASKET_DATA_DIR"].map { URL(fileURLWithPath: $0) }
+            store = BasketStore(library: try MaterialLibrary(directory: customDirectory))
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "无法打开上下文篮"
+            alert.informativeText = "本地保存目录暂时无法访问：\(error.localizedDescription)"
+            alert.runModal()
+            NSApp.terminate(nil)
+            return
+        }
+        configureMenu()
+        panel = ShelfPanel(contentRect: NSRect(x: 0, y: 0, width: 420, height: 320), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.title = "上下文篮"
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.hidesOnDeactivate = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.isReleasedWhenClosed = false
+        panel.acceptsMouseMovedEvents = true
+        panel.appearance = NSAppearance(named: .darkAqua)
+        panel.contentView = ShelfHostingView(store: store) { [weak self] in self?.panel.orderOut(nil) }
+        panel.pasteMaterials = { [weak self] in self?.store.paste() }
+        panel.undoRemoval = { [weak self] in self?.store.undoRemove() }
+        store.onCountChanged = { [weak self] in self?.resizeShelf() }
+        resizeShelf()
+        if let screen = NSScreen.main {
+            let visible = screen.visibleFrame
+            panel.setFrameOrigin(NSPoint(x: visible.maxX - panel.frame.width - 36, y: visible.midY - panel.frame.height / 2))
+        }
+        panel.orderFrontRegardless()
+    }
+
+    private func configureMenu() {
+        let mainMenu = NSMenu()
+        let appMenuItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "显示上下文篮", action: #selector(showShelf), keyEquivalent: "0")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "退出上下文篮", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+        let edit = NSMenuItem()
+        let editMenu = NSMenu(title: "编辑")
+        editMenu.addItem(withTitle: "复制", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "粘贴材料", action: #selector(pasteMaterials), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "撤销删除", action: #selector(undoRemoval), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.submenu = editMenu
+        mainMenu.addItem(edit)
+        #if DEBUG
+        let development = NSMenuItem()
+        let developmentMenu = NSMenu(title: "开发")
+        developmentMenu.addItem(withTitle: "打开拖入验收窗口", action: #selector(showDragHarness), keyEquivalent: "")
+        development.submenu = developmentMenu
+        mainMenu.addItem(development)
+        #endif
+        NSApp.mainMenu = mainMenu
+
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem.button?.image = NSImage(systemSymbolName: "tray.full", accessibilityDescription: "上下文篮")
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(showShelf)
+        statusItem.button?.toolTip = "显示上下文篮"
+    }
+
+    @objc private func showShelf() { panel.orderFrontRegardless() }
+    @objc private func pasteMaterials() { store.paste() }
+    @objc private func undoRemoval() { store.undoRemove() }
+
+    #if DEBUG
+    @objc private func showDragHarness() {
+        dragHarness = makeDragHarness(store: store)
+        dragHarness?.makeKeyAndOrderFront(nil)
+    }
+    #endif
+
+    private func resizeShelf() {
+        guard panel != nil else { return }
+        let rows = (store.items.count + 1) / 2
+        let height: CGFloat = store.items.isEmpty ? 320 : min(500, 112 + CGFloat(rows) * 167)
+        var frame = panel.frame
+        frame.origin.y += frame.height - height
+        frame.size.height = height
+        if let screen = panel.screen, frame.minY < screen.visibleFrame.minY + 16 { frame.origin.y = screen.visibleFrame.minY + 16 }
+        panel.setFrame(frame, display: true, animate: false)
+    }
+}
