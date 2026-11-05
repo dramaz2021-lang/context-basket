@@ -1,72 +1,63 @@
-# 架构说明
+# 当前架构
 
-## 两个模块
-
-`ContextBasketApp` 负责用户界面和系统边界；`ContextBasketCore` 负责材料的含义、组织规则和导出计划。依赖方向为 App → Core。
-
-初期保持单一仓库和两个编译模块。Swift Package Manager 的根清单在 M0 添加；本次初始化只有文档和目录，不包含实现。最低 macOS 版本在原型阶段根据 API 和可测试设备确定。
+一个 Swift Package Manager 应用目标，AppKit 管理系统窗口和拖拽，SwiftUI 绘制编辑界面，最低 macOS 14。没有独立 Core。
 
 | 位置 | 职责 |
 | --- | --- |
-| App/App | 程序生命周期、菜单栏入口、服务组装、采集启停 |
-| App/Features/Basket | 展示材料、处理预览/删除/排序/备注、呈现状态 |
-| App/Platform/Clipboard | 剪贴板检查、读取可支持格式、隐藏标记处理、自身写入抑制 |
-| App/Platform/Screenshots | 目录访问、文件变化监听、文件就绪判断 |
-| App/Platform/DragAndDrop | 接收拖入内容、兑现文件承诺、建立多附件拖拽会话 |
-| App/Platform/Windowing | NSPanel、焦点、窗口位置、多屏和全屏行为 |
-| App/Platform/Persistence | 资产导入、原子写入索引、恢复、导出快照文件生命周期 |
-| Core/Models | 材料、材料组、来源证据、导出快照的数据结构 |
-| Core/Collection | 集合操作、去重策略、顺序管理、导出选择 |
-| Core/Export | 固定快照的内容编排、文件名、context.txt、附件对应表 |
+| App/ContextBasket | 生命周期、菜单栏、窗口尺寸、编辑快捷键路由 |
+| Features/Basket/Material | 材料、用途说明、源地址、导入模式、版本化文档 |
+| Features/Basket/BasketStore | 异步导入/转换、指令编辑、删除撤销、保存协调 |
+| Features/Basket/ShelfView | 预览卡片、悬停操作、模式选择、说明与指令输入 |
+| Features/Basket/MaterialPreview | 副本和文字的应用内预览 |
+| Features/Basket/MaterialOpenDestination | 按材料类型确定副本、真实源文件或原网址；失效引用报错 |
+| Platform/Windowing/SourceFilePreview | Finder 定位源文件，系统 Quick Look 面板预览同一真实地址 |
+| Platform/DragAndDrop/DropReader | 一份材料选择一种表示，避免多格式重复导入 |
+| Platform/DragAndDrop/DropPolicy | 区分本机文件、图像/临时传输和文字，按落点选择副本、引用或文字编辑 |
+| Platform/DragAndDrop/MaterialDropCoordinator | 共享拖入反馈和导入流程，基于实际区域位置分流 |
+| Platform/Windowing/PromptTextEditor | 原生纯文字编辑器，拒绝文件/图片拖入，不生成文本附件 |
+| Platform/DragAndDrop/PromptExporter | 固定格式拼接原文，生成独立导出快照 |
+| Platform/DragAndDrop/PromptDragSource | 原生多文件拖拽和半透明标签 |
+| Platform/Windowing | 非激活置顶面板，区分编辑与材料快捷键 |
+| Platform/Windowing/FloatingShelfController | 同一面板在图标与完整编辑区之间切换，保留 hosting view 和内容状态 |
+| Platform/Windowing/ShelfAutoHidePolicy | 移入/移出延时、交互期间暂缓、取消待收起动作 |
+| Platform/Persistence | 独立文件副本、源地址、缩略图、JSON 原子写入 |
 
-## 数据流
+## 导入
 
-```mermaid
-flowchart LR
-    P[剪贴板 / 截图目录 / 手动拖入] --> A[macOS 采集适配]
-    A --> C[Core：整理与去重]
-    C --> B[当前材料组]
-    B --> V[浮窗展示]
-    V -->|删除 / 排序 / 备注| B
-    B --> S[固定导出快照]
-    S --> E[Core：文本索引与附件计划]
-    E --> F[本地生成导出文件]
-    F --> D[macOS 多项拖拽]
-    D --> T[ChatGPT 输入框]
-```
+拖入 / 主动粘贴 / 选文件 → 立即显示占位卡 → 后台复制或引用 → 更新卡片 → 保存。
 
-## 核心数据
+文件拖到上方材料区时展示左右两块色区，落点左侧为副本、右侧为引用。区域边界由真实布局中的 NSView 标记提供，不硬编码编辑框位置。纯图像和文件承诺没有稳定源地址，直接复制。
 
-| 对象 | 建议字段 / 约定 |
-| --- | --- |
-| ContextItem | id、kind、text 或 assetID、capturedAt、source、note；文本保留原文 |
-| ContextSource | 采集途径、可证实的 URL/应用信息、来源可信程度；未知允许为空 |
-| Basket | id、按顺序排列的 items、updatedAt；首版只有一个当前组 |
-| Asset | id、相对文件名、格式、大小、校验值；原图独立于缩略图 |
-| ExportSnapshot | id、创建时间、冻结的材料顺序和资产引用；导出开始后不变 |
-| ExportPlan | context.txt 内容、文件名及材料映射、待附加资产 |
+指令编辑器关闭富文本和图像导入。含文件、图像或文件承诺的拖拽进入指令框时整体拒绝，清除此前的接收提示；不会增加材料，也不回退插入同一项目携带的文件名或文字表示。文字和网页 URL 使用原生文字插入及撤销。材料导入只接受上方上下文区的落点，页脚及其他空白区域同样拒绝。
 
-这些是实现约定，不代表已存在的 Swift 类型。类型细节在第一个实现 PR 中确定。
+复制模式保留副本，同时记住真实来源以便切换。引用模式保存源地址和可选缩略图，不保存可导出的内容副本。文件承诺只提供临时传输位置，不能把它当源地址。加载期间删除不会让材料重现；转换期间的保存保留转换前的稳定材料。
 
-## 本地保存
+## 编辑与导出
 
-建议使用应用专属的 Application Support 目录，分为 `basket.json`、`assets/` 和 `exports/`。JSON 带 schemaVersion 并采用原子替换；素材保存成功后才更新索引，异常恢复时检查缺失资产。
+点击卡片即打开材料，悬停只显示说明和删除按钮。副本保持应用内预览；源地址先验证原文件存在，再定位 Finder 并将同一 URL 交给系统 Quick Look；网页链接通过系统默认浏览器打开。AppDelegate 参与 Quick Look 控制器生命周期，只有取得面板控制权后才设置数据源。
 
-Core 只处理资产标识和导出计划。绝对路径、访问权限、文件复制以及清理属于 App 的 Persistence。用户原文件不会因删除篮内材料而被删除。
+用户说明、指令均按原文保存。预览使用与导出相同的格式函数。拖动开始时验证材料，生成 exports/<UUID>/PROMPT.txt 以及带序号的副本附件。序号防止同名文件冲突。
 
-每次拖出生成独立快照目录。拖拽回调不能证明目标端已读取文件，因此不能在拖拽结束时立即删除导出文件；清理策略应在 M0 实测后确定，并保证重试可用。
+引用仅写入本机路径和 file URL，绝不把源文件 URL 作为拖动附件发送。找不到源文件则提示失败，不回退成另一份副本。PROMPT.txt 同时提供纯文字拖拽表示，目标应用自行选择读取文件还是文字。
 
-## 交付策略
+快照独立于正在编辑的篮子，删除卡片不会破坏已交付文件。缓存暂不自动回收；系统交付成功不代表 Agent 已读到任务。
 
-文字和链接写入 UTF-8 的 `context.txt`；图片使用带编号的文件名，作为独立附件。App 使用 AppKit 发起多项拖拽，Core 不感知 ChatGPT 窗口或浏览器。
+## 保存
 
-初期导出流程保持通用。未来需要适配不同 Agent 时，以目标端已验证的格式和限制增加少量导出配置；出现实际差异前不引入插件框架。
+Application Support/ContextBasket：
+- basket.json：version=2，材料、说明、prompt、importMode。
+- assets/<UUID>/：导入副本。
+- thumbnails/<UUID>/：预览缓存，与用户文件名隔离。
+- exports/<UUID>/：不可变拖出快照。
 
-## 边界与验证
+读取时兼容 0.1 的纯材料数组。旧材料缺少源地址时保持未知。JSON 使用原子写入，删除仅操作应用专属资产。
 
-- 材料数量和内容完整性、编号、导出顺序、去重规则由 Core 测试覆盖。
-- 文件写入、恢复、导出资产存活期由 App 集成测试覆盖。
-- 权限、焦点、真实跨应用拖拽和目标端理解通过人工实测覆盖。
-- 剪贴板按变化读取的策略需要验证快速连续复制时的表现，不能默认无损。
-- 系统拖拽完成、目标端附件出现、上传完成、AI 正确使用材料是不同状态，分别记录。
-- 本次仓库初始化没有测试或构建结论；实现后再添加对应命令和自动检查。
+不监听剪贴板、不下载链接、不调用模型、不自动执行指令。
+
+## 自动收起与透明度
+
+原生窗口和 hosting view 均不声明不透明，SwiftUI 根背景使用 56% 不透明度的深色填充，不叠加 NSVisualEffectView。卡片与输入框仅增加少量遮罩，文字和图片不整体降透明度。
+
+主线程定时读取鼠标位置，不使用全局键盘监听或额外权限。移出 0.55 秒收起，移入图标 0.16 秒展开，尺寸动画 0.18 秒。窗口保持原顶部位置，扩展时限制在当前屏幕可见区域。折叠只切换缓存的内容视图，不重建材料或指令。
+
+菜单、sheet、文件选择、拖拽期间暂停；本应用文本输入后的 1.5 秒以及输入法组词期间暂缓。文本框焦点本身不会锁定展开。图标保留原生文件接收能力，拖入时展开。
