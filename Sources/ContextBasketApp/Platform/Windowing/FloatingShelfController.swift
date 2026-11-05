@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import QuartzCore
+import Combine
 
 @MainActor
 final class FloatingShelfController {
@@ -8,8 +9,9 @@ final class FloatingShelfController {
     private let store: BasketStore
     private var expandedView: ShelfHostingView!
     private var compactView: CompactShelfHostingView!
-    private(set) var isCollapsed = false
-    private var expandedSize = NSSize(width: 460, height: 500)
+    private var sizeObservation: AnyCancellable?
+    private(set) var isCollapsed = true
+    private var expandedSize = NSSize(width: BubbleLayout.expandedWidth, height: BubbleLayout.baseHeight)
     private let compactSize = NSSize(width: 58, height: 58)
 
     init(panel: ShelfPanel, store: BasketStore) {
@@ -19,18 +21,20 @@ final class FloatingShelfController {
         compactView = CompactShelfHostingView(store: store, expand: { [weak self] in self?.expand() }, receive: { [weak self] info in
             self?.expandedView.performDragOperation(info) ?? false
         })
-        panel.contentView = expandedView
+        panel.contentView = compactView
+        updateSize()
+        setFrame(size: compactSize, animate: false)
+        sizeObservation = store.$items.combineLatest(store.$noteEditorID, store.$prompt, store.$errorMessage).dropFirst()
+            .receive(on: RunLoop.main).sink { [weak self] _ in self?.updateSize() }
     }
 
     func show() {
-        expand()
         panel.orderFrontRegardless()
     }
 
     func updateSize() {
-        let rows = (store.items.count + 1) / 2
         let available = (panel.screen ?? NSScreen.main)?.visibleFrame.height ?? 800
-        expandedSize.height = min(available - 32, store.items.isEmpty ? 500 : min(710, 310 + CGFloat(rows) * 185))
+        expandedSize.height = BubbleLayout.expandedHeight(items: store.items, noteEditorID: store.noteEditorID, prompt: store.prompt, hasError: store.errorMessage != nil, available: available)
         guard !isCollapsed else { return }
         setFrame(size: expandedSize, animate: false)
     }
@@ -68,33 +72,31 @@ final class FloatingShelfController {
             }
         } else { panel.setFrame(next, display: true) }
     }
-
-
 }
 
-private struct CompactShelfView: View {
+struct ShelfAnchorView: View {
     @ObservedObject var store: BasketStore
-    let expand: () -> Void
+    var expanded = false
+    let toggle: () -> Void
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            RoundedRectangle(cornerRadius: 18).fill(Color(red: 0.08, green: 0.10, blue: 0.12).opacity(0.58))
-            Image(systemName: "tray.full.fill").font(.system(size: 25, weight: .medium))
-                .foregroundStyle(Color(red: 0.65, green: 0.88, blue: 0.76))
+            Image(nsImage: BasketArtwork.image(size: 34)).resizable().scaledToFit()
+                .frame(width: 34, height: 34)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             if !store.items.isEmpty {
                 Text(store.items.count > 99 ? "99+" : "\(store.items.count)")
                     .font(.system(size: 8, weight: .bold, design: .rounded)).foregroundStyle(.white)
                     .padding(.horizontal, 4).padding(.vertical, 2).background(.black.opacity(0.5), in: Capsule()).padding(5)
             }
-            CompactHandle(expand: expand)
+            CompactHandle(expand: toggle)
         }
-        .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.28)).allowsHitTesting(false) }
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .basketGlass(cornerRadius: 22, interactive: true)
+        .preferredColorScheme(.dark)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("context basket 悬浮图标，\(store.items.count) 项材料，点击展开")
+        .accessibilityLabel("context basket 悬浮图标，\(store.items.count) 项材料，\(expanded ? "点击收起" : "点击展开")")
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction { expand() }
-        .help("点击展开 · 拖文件到此展开 · 拖动图标可移动")
+        .accessibilityAction { toggle() }
+        .help(expanded ? "点击收起 · 拖动图标可移动" : "点击展开 · 拖文件到此展开 · 拖动图标可移动")
     }
 }
 
@@ -120,18 +122,18 @@ private struct CompactHandle: NSViewRepresentable {
     func updateNSView(_ view: Handle, context: Context) { view.expand = expand }
 }
 
-private final class CompactShelfHostingView: NSHostingView<CompactShelfView> {
+private final class CompactShelfHostingView: NSHostingView<ShelfAnchorView> {
     private let expand: () -> Void
     private let receive: (NSDraggingInfo) -> Bool
     override var isOpaque: Bool { false }
     init(store: BasketStore, expand: @escaping () -> Void, receive: @escaping (NSDraggingInfo) -> Bool) {
         self.expand = expand
         self.receive = receive
-        super.init(rootView: CompactShelfView(store: store, expand: expand))
+        super.init(rootView: ShelfAnchorView(store: store, toggle: expand))
         sizingOptions = []
         registerForDraggedTypes(DropReader.types)
     }
-    @available(*, unavailable) required init(rootView: CompactShelfView) { fatalError() }
+    @available(*, unavailable) required init(rootView: ShelfAnchorView) { fatalError() }
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { expand(); return .copy }
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { .copy }

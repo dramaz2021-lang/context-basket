@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-private let accent = Color(red: 0.65, green: 0.83, blue: 0.73)
+private let accent = Color(red: 0.10, green: 0.23, blue: 0.43)
+private let noteBackground = Color(red: 0.83, green: 0.89, blue: 0.97)
 // Disambiguate the property wrapper from the same-name macro in newer SDKs.
 private typealias ViewState<Value> = SwiftUI.State<Value>
 
@@ -10,21 +11,16 @@ struct ShelfView: View {
     @ObservedObject var store: BasketStore
     let drops: MaterialDropCoordinator
     let close: () -> Void
+    private let addBubbleID = "add-material-bubble"
+    private let columns = Array(repeating: GridItem(.fixed(BubbleLayout.cardWidth), spacing: BubbleLayout.gap, alignment: .top), count: 2)
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                header
-                if store.items.isEmpty { emptyState } else { materials }
-            }
-            .background(DropAreaMarker(coordinator: drops))
-            .overlay { collectionDropOverlay }
-            promptEditor
-            footer
+        VStack(alignment: .leading, spacing: BubbleLayout.gap) {
+            header
+            promptBubble
+            attachments
         }
-        .background(Color(red: 0.06, green: 0.08, blue: 0.10).opacity(0.56))
-        .overlay { RoundedRectangle(cornerRadius: 24).strokeBorder(.white.opacity(0.14), lineWidth: 1).allowsHitTesting(false) }
-        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .preferredColorScheme(.dark)
         .sheet(item: $store.preview) { MaterialPreview(item: $0, library: store.library) }
         .sheet(isPresented: $store.showLocationEditor) { LocationEditor(store: store) }
@@ -32,142 +28,148 @@ struct ShelfView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 9) {
-            Button(action: close) {
-                Image(systemName: "tray.full.fill").font(.system(size: 17)).foregroundStyle(accent)
-            }.buttonStyle(.plain).help("收起为图标").accessibilityLabel("收起为图标")
-            Text("context basket").font(.system(size: 14, weight: .semibold))
-            Text("\(store.items.count)").font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.6)).padding(.horizontal, 7).padding(.vertical, 3)
-                .background(.white.opacity(0.07), in: Capsule()).accessibilityLabel("\(store.items.count) 项材料")
-            Spacer()
-            Button(action: store.undoRemove) {
-                Image(systemName: "arrow.uturn.backward").font(.system(size: 11, weight: .semibold))
-            }
-            .buttonStyle(ShelfIconStyle()).disabled(!store.canUndo).opacity(store.canUndo ? 1 : 0.35)
-            .help("撤销删除").accessibilityLabel("撤销删除")
-            Menu {
-                Button("添加文件…", action: store.chooseFiles)
-                Button("添加链接或本机地址…") { store.showLocationEditor = true }
-                Button("粘贴为材料", action: store.paste)
-                Toggle("自动收集剪贴板（副本）", isOn: Binding(get: { store.automaticallyCollectClipboard }, set: store.setAutomaticallyCollectClipboard))
-                Menu("选文件与粘贴的默认方式") {
-                    ForEach(FileImportMode.allCases, id: \.self) { mode in
-                        Button { store.setImportMode(mode) } label: {
-                            if store.importMode == mode { Label(mode.title, systemImage: "checkmark") } else { Text(mode.title) }
-                        }
-                    }
-                }
-                Divider()
-                Button("退出 context basket") { NSApp.terminate(nil) }
-            } label: {
-                Image(systemName: "plus").frame(width: 25, height: 26)
-                    .foregroundStyle(.white.opacity(0.5))
-                    .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 7))
-            }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("添加材料与设置").accessibilityLabel("添加材料与设置")
-            Button(action: close) { Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)) }
-                .buttonStyle(ShelfIconStyle()).help("收起浮窗").accessibilityLabel("收起浮窗")
-        }
-        .foregroundStyle(.white.opacity(0.9)).padding(.horizontal, 17).frame(height: 56)
-        .background(WindowDragArea())
-    }
-
-    @ViewBuilder private var collectionDropOverlay: some View {
-        if let feedback = store.dropFeedback, feedback.style != .promptText {
-            Group {
-                if feedback.style == .fileChoices {
-                    HStack(spacing: 10) {
-                        fileDropZone(.copy, selected: feedback.mode == .copy)
-                        fileDropZone(.reference, selected: feedback.mode == .reference)
-                    }
-                } else {
-                    Image(systemName: "tray.and.arrow.down.fill").font(.system(size: 30, weight: .light))
-                    .foregroundStyle(.white).frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(red: 0.12, green: 0.34, blue: 0.27).opacity(0.88), in: RoundedRectangle(cornerRadius: 17))
-                    .overlay { RoundedRectangle(cornerRadius: 17).strokeBorder(accent, style: StrokeStyle(lineWidth: 2, dash: [6, 4])) }
-                }
-            }.padding(12).allowsHitTesting(false)
-        }
-    }
-
-    private func fileDropZone(_ mode: FileImportMode, selected: Bool) -> some View {
-        let color = mode == .copy ? Color(red: 0.45, green: 0.76, blue: 0.61) : Color(red: 0.48, green: 0.64, blue: 0.91)
-        return VStack(spacing: 12) {
-            Image(systemName: mode == .copy ? "doc.on.doc.fill" : "link").font(.system(size: 32, weight: .medium))
-            Text(mode == .copy ? "副本" : "链接").font(.system(size: 22, weight: .semibold))
-        }
-        .foregroundStyle(Color(red: 0.06, green: 0.12, blue: 0.16))
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(color.opacity(selected ? 0.94 : 0.76), in: RoundedRectangle(cornerRadius: 17))
-        .overlay { RoundedRectangle(cornerRadius: 17).strokeBorder(.white.opacity(selected ? 0.95 : 0.25), lineWidth: selected ? 3 : 1) }
-        .accessibilityLabel(mode == .copy ? "拖入副本区域" : "拖入源文件链接区域")
-    }
-
-    private var materials: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10, alignment: .top), GridItem(.flexible(), spacing: 10, alignment: .top)], alignment: .leading, spacing: 10) {
-                    ForEach(store.items) { item in MaterialCard(store: store, item: item).id(item.id) }
-                }.padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 14)
-            }
-            .onChange(of: store.items.count) { _, _ in
-                if let last = store.items.last {
-                    DispatchQueue.main.async { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last.id, anchor: .bottom) } }
-                }
-            }
-        }
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 10) {
-            Spacer(minLength: 12)
-            ZStack {
-                emptyCard("text.alignleft", color: .purple).rotationEffect(.degrees(-16)).offset(x: -34, y: 5)
-                emptyCard("photo", color: accent).rotationEffect(.degrees(10)).offset(x: 28)
-            }.frame(height: 80)
-            Text("把材料拖到这里").font(.system(size: 14, weight: .medium)).padding(.top, 7)
-            Text("图片、文字、链接、文件").font(.system(size: 11)).foregroundStyle(.white.opacity(0.4))
-            Spacer(minLength: 20)
-        }.frame(maxWidth: .infinity)
-    }
-    private func emptyCard(_ symbol: String, color: Color) -> some View {
-        RoundedRectangle(cornerRadius: 13).fill(Color(white: 0.22))
-            .overlay { RoundedRectangle(cornerRadius: 13).strokeBorder(.white.opacity(0.12)) }
-            .overlay { Image(systemName: symbol).font(.system(size: 24, weight: .light)).foregroundStyle(color) }
-            .frame(width: 62, height: 74).shadow(color: .black.opacity(0.2), radius: 9, y: 5)
-    }
-
-    private var promptEditor: some View {
-        PromptTextEditor(store: store, drops: drops)
-            .padding(7).frame(height: 104).background(.black.opacity(0.14), in: RoundedRectangle(cornerRadius: 12))
-            .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(store.dropFeedback?.overPrompt == true ? accent.opacity(0.8) : .white.opacity(0.08)).allowsHitTesting(false) }
-        .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 12)
-        .background(DropAreaMarker(coordinator: drops, isPrompt: true))
-        .background(alignment: .top) { Rectangle().fill(.white.opacity(0.07)).frame(height: 1).padding(.horizontal, 16) }
-    }
-
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let message = store.errorMessage ?? store.statusMessage {
-                HStack(alignment: .top) {
-                    Text(message).lineLimit(3)
-                    Spacer(minLength: 0)
-                    Button { store.errorMessage = nil; store.statusMessage = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
-                }.font(.system(size: 10)).foregroundStyle(store.errorMessage == nil ? accent : .orange)
-            }
-            HStack(spacing: 13) {
-                Button(action: store.presentPromptPreview) { Label("预览完整 Prompt", systemImage: "doc.text.magnifyingglass") }
-                    .buttonStyle(PromptActionStyle()).help("预览完整 Prompt").accessibilityLabel("预览完整 Prompt").disabled(!store.canExport)
-                Spacer(minLength: 0)
-                Button(action: store.copyPrompt) {
-                    Label("复制完整 Prompt", systemImage: "doc.on.clipboard")
-                }
+        HStack(spacing: BubbleLayout.gap) {
+            ShelfAnchorView(store: store, expanded: true, toggle: close)
+                .frame(width: BubbleLayout.iconSize, height: BubbleLayout.iconSize)
+                .background(DropAreaMarker(coordinator: drops, isIcon: true))
+            Button(action: store.presentPromptPreview) { Text("预览 Prompt") }
+                .buttonStyle(PromptActionStyle()).disabled(!store.canExport)
+                .help("预览完整 Prompt").accessibilityLabel("预览完整 Prompt")
+            Button(action: store.copyPrompt) { Text("复制 Prompt") }
                 .buttonStyle(PromptActionStyle()).disabled(!store.canExport)
                 .help("复制完整 Prompt 和附件，到 Agent 中粘贴")
                 .accessibilityLabel("复制完整 Prompt")
-            }.foregroundStyle(.white.opacity(0.5))
-        }.padding(.horizontal, 18).padding(.bottom, 16)
+            Button { store.setAutomaticallyCollectClipboard(!store.automaticallyCollectClipboard) } label: {
+                Image(systemName: store.automaticallyCollectClipboard ? "pause.fill" : "play.fill")
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .buttonStyle(HeaderIconStyle(active: store.automaticallyCollectClipboard))
+            .help(store.automaticallyCollectClipboard ? "自动添加剪贴板内容 · 点击暂停" : "已暂停添加剪贴板内容 · 点击继续")
+            .accessibilityLabel(store.automaticallyCollectClipboard ? "暂停自动添加剪贴板内容" : "继续自动添加剪贴板内容")
+            Button(action: store.clearBasket) { Image(systemName: "xmark") }
+                .buttonStyle(HeaderIconStyle()).disabled(!store.hasContent)
+                .help("清空当前指令和附件").accessibilityLabel("清空当前 Prompt 和附件")
+        }.frame(height: BubbleLayout.headerHeight)
+    }
+
+    private var promptBubble: some View {
+        PromptTextEditor(store: store, drops: drops)
+            .overlay(alignment: .topLeading) {
+                if store.prompt.isEmpty {
+                    Text("输入指令").font(.system(size: 13)).foregroundStyle(.white.opacity(0.48))
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, BubbleLayout.promptPadding).padding(.vertical, 12)
+            .frame(width: BubbleLayout.promptWidth, height: BubbleLayout.promptHeight(for: store.prompt))
+            .basketGlass(cornerRadius: 22)
+            .background(DropAreaMarker(coordinator: drops, isPrompt: true))
+    }
+
+    private var attachments: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: BubbleLayout.gap) {
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: BubbleLayout.gap) {
+                        ForEach(store.items) { item in
+                            MaterialCard(store: store, item: item).id(item.id)
+                        }
+                        ForEach(0..<BubbleLayout.addSlotCount(itemCount: store.items.count), id: \.self) { slot in
+                            addBubble(slot: slot).id("\(addBubbleID)-\(slot)")
+                        }
+                    }
+                    if let message = store.errorMessage {
+                        HStack(alignment: .top) {
+                            Text(message).font(.system(size: 11)).foregroundStyle(.orange)
+                            Spacer(minLength: 0)
+                            Button { store.errorMessage = nil } label: { Image(systemName: "xmark") }
+                                .buttonStyle(.plain).accessibilityLabel("关闭错误提示")
+                        }.padding(12).basketGlass(cornerRadius: 18)
+                    }
+                }.frame(width: BubbleLayout.collectionWidth)
+            }
+            .scrollIndicators(.hidden)
+            .onChange(of: store.items.count) { _, _ in
+                DispatchQueue.main.async { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("\(addBubbleID)-0", anchor: .bottom) } }
+            }
+            .onChange(of: store.noteEditorID) { _, id in
+                if let id { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .bottom) } }
+            }
+        }
+        .frame(width: BubbleLayout.collectionWidth)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private func addBubble(slot: Int) -> some View {
+        let feedback = store.dropFeedback
+        let targeted = feedback != nil && !feedback!.overPrompt && (feedback!.targetSlot == nil || feedback!.targetSlot == slot)
+        return ZStack {
+            if targeted && feedback?.style == .fileChoices {
+                HStack(spacing: 6) {
+                    dropChoice(.copy)
+                    dropChoice(.reference)
+                }.padding(8).transition(.opacity)
+            } else {
+                addMenu
+                    .frame(width: BubbleLayout.cardWidth, height: BubbleLayout.cardHeight)
+                    .overlay {
+                        VStack(spacing: 7) {
+                            Image(systemName: "plus").font(.system(size: 28, weight: .ultraLight)).padding(.bottom, 7)
+                            Text("把材料拖到这里").font(.system(size: 13, weight: .medium))
+                            Text("图片、文字、链接、文件").font(.system(size: 10)).foregroundStyle(.white.opacity(0.48))
+                        }
+                        .foregroundStyle(.white.opacity(0.78)).allowsHitTesting(false).accessibilityHidden(true)
+                    }
+            }
+        }
+        .frame(width: BubbleLayout.cardWidth, height: BubbleLayout.cardHeight)
+        .basketGlass(cornerRadius: 24)
+        .overlay(alignment: .topTrailing) {
+            if slot == 0 && store.canUndo && !targeted {
+                Button(action: store.undoRemove) { Image(systemName: "arrow.uturn.backward").font(.system(size: 12, weight: .medium)) }
+                    .buttonStyle(ShelfIconStyle()).padding(9)
+                    .help("撤销删除或清空").accessibilityLabel("撤销删除或清空")
+            }
+        }
+        .background(DropAreaMarker(coordinator: drops, slot: slot))
+        .animation(.easeOut(duration: 0.16), value: targeted)
+        .accessibilityElement(children: .contain).accessibilityLabel("添加附件气泡")
+    }
+
+    private var addMenu: some View {
+        Menu {
+            Button("添加文件…", action: store.chooseFiles)
+            Button("添加链接或本机地址…") { store.showLocationEditor = true }
+            Button("粘贴为材料", action: store.paste)
+            Menu("选文件与粘贴的默认方式") {
+                ForEach(FileImportMode.allCases, id: \.self) { mode in
+                    Button { store.setImportMode(mode) } label: {
+                        if store.importMode == mode { Label(mode.title, systemImage: "checkmark") } else { Text(mode.title) }
+                    }
+                }
+            }
+            Divider()
+            Button("撤销删除或清空", action: store.undoRemove).disabled(!store.canUndo)
+            Button("退出 context basket") { NSApp.terminate(nil) }
+        } label: {
+            Color.clear.frame(width: BubbleLayout.cardWidth, height: BubbleLayout.cardHeight)
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .help("添加材料").accessibilityLabel("添加材料")
+    }
+
+    private func dropChoice(_ mode: FileImportMode) -> some View {
+        let color = mode == .copy ? Color(red: 0.65, green: 0.83, blue: 0.73) : Color(red: 0.56, green: 0.73, blue: 0.97)
+        let selected = store.dropFeedback?.mode == mode
+        return VStack(spacing: 10) {
+            Image(systemName: mode == .copy ? "doc.on.doc" : "link").font(.system(size: 22, weight: .light))
+            Text(mode == .copy ? "副本" : "链接").font(.system(size: 12, weight: .medium))
+        }
+        .foregroundStyle(accent)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(color.opacity(selected ? 0.95 : 0.76), in: RoundedRectangle(cornerRadius: 18))
+        .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(color.opacity(selected ? 0.9 : 0.3), lineWidth: 0.8) }
+        .allowsHitTesting(false)
     }
 }
 
@@ -182,12 +184,12 @@ private struct MaterialCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topLeading) {
-                Color.black.opacity(0.12)
+                Color.clear
                 cardContent
                 PromptDragSource(store: store, material: item, clicked: preview, hoverChanged: { hovered = $0 })
                 HStack {
                     Text(item.modeLabel).font(.system(size: 8, weight: .medium))
-                        .foregroundStyle(item.isReference ? accent : .white.opacity(0.72))
+                        .foregroundStyle(.white.opacity(0.82))
                         .padding(.horizontal, 6).padding(.vertical, 4).background(.black.opacity(0.62), in: Capsule()).allowsHitTesting(false)
                     Spacer(minLength: 0)
                     if hovered || editing { actions }
@@ -202,17 +204,26 @@ private struct MaterialCard: View {
             if editing {
                 VStack(alignment: .leading, spacing: 5) {
                     MaterialNoteEditor(store: store, itemID: item.id, title: item.title).frame(height: 56)
-                    HStack { Spacer(); Button("完成", action: store.finishNoteEditing).buttonStyle(.plain).foregroundStyle(accent).font(.system(size: 10)) }
+                    HStack { Spacer(); Button("完成", action: store.finishNoteEditing).buttonStyle(.plain).font(.system(size: 10, weight: .medium)).foregroundStyle(accent).padding(.horizontal, 8).padding(.vertical, 3).background(noteBackground, in: Capsule()) }
                 }.padding(9).background(.black.opacity(0.15)).padding(.horizontal, 7).padding(.bottom, 7)
             } else if hasNote {
                 Button { store.editNote(item.id) } label: {
-                    Label(item.note ?? "", systemImage: "quote.opening").font(.system(size: 10)).lineLimit(2)
-                        .foregroundStyle(accent.opacity(0.9)).frame(maxWidth: .infinity, alignment: .leading)
-                }.buttonStyle(.plain).padding(.horizontal, 10).padding(.bottom, 10).help("编辑文件说明")
+                    HStack(alignment: .top, spacing: 3) {
+                        Text("“").font(.system(size: 14, weight: .semibold))
+                        Text(item.note ?? "").font(.system(size: 10)).lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("”").font(.system(size: 14, weight: .semibold))
+                            .frame(maxHeight: .infinity, alignment: .bottom)
+                    }
+                    .foregroundStyle(accent).padding(.horizontal, 8).padding(.vertical, 4)
+                    .frame(height: 30)
+                    .background(noteBackground.opacity(0.94), in: RoundedRectangle(cornerRadius: 9))
+                }.buttonStyle(.plain).padding(.horizontal, 10).frame(height: 38).help("编辑文件说明")
             }
         }
-        .background(.white.opacity(hovered ? 0.09 : 0.045)).clipShape(RoundedRectangle(cornerRadius: 13))
-        .overlay { RoundedRectangle(cornerRadius: 13).strokeBorder(.white.opacity(hovered ? 0.22 : 0.07)).allowsHitTesting(false) }
+        .frame(width: BubbleLayout.cardWidth)
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .basketGlass(cornerRadius: 24)
         .onHover { hovered = $0 }
         .contextMenu {
             Button(hasNote ? "编辑文件说明" : "添加文件说明") { store.editNote(item.id) }
@@ -301,11 +312,23 @@ private struct PromptPreview: View {
 private struct PromptActionStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(isEnabled ? Color(white: 0.12) : .white.opacity(0.25))
-            .padding(.horizontal, 14).frame(height: 32)
-            .background(isEnabled ? accent : Color.white.opacity(0.06), in: Capsule())
-            .opacity(configuration.isPressed ? 0.85 : 1)
+        configuration.label.font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(isEnabled ? Color.white : .white.opacity(0.55))
+            .frame(maxWidth: .infinity).frame(height: BubbleLayout.headerHeight)
+            .basketGlass(cornerRadius: 22, interactive: isEnabled)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+    }
+}
+
+private struct HeaderIconStyle: ButtonStyle {
+    var active = false
+    @Environment(\.isEnabled) private var isEnabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.font(.system(size: 17, weight: .medium))
+            .foregroundStyle(isEnabled ? .white.opacity(active ? 1 : 0.85) : .white.opacity(0.3))
+            .frame(width: BubbleLayout.iconSize, height: BubbleLayout.headerHeight)
+            .basketGlass(cornerRadius: 22, interactive: isEnabled)
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
     }
 }
 
@@ -314,17 +337,4 @@ private struct ShelfIconStyle: ButtonStyle {
         configuration.label.frame(width: 25, height: 26).foregroundStyle(.white.opacity(configuration.isPressed ? 1 : 0.5))
             .background(.white.opacity(configuration.isPressed ? 0.12 : 0.035), in: RoundedRectangle(cornerRadius: 7))
     }
-}
-private struct WindowDragArea: NSViewRepresentable {
-    class Handle: NSView {
-        override func mouseDown(with event: NSEvent) {
-            guard let window else { return }
-            let alpha = window.alphaValue
-            window.alphaValue = 0.55
-            defer { window.alphaValue = alpha }
-            window.performDrag(with: event)
-        }
-    }
-    func makeNSView(context: Context) -> Handle { Handle() }
-    func updateNSView(_ nsView: Handle, context: Context) {}
 }

@@ -20,7 +20,7 @@ final class BasketStore: ObservableObject {
     @Published var isExporting = false
     @Published var isChoosingFiles = false
     let library: MaterialLibrary
-    private var removed: (Material, Int)?
+    private var removed: (items: [(item: Material, index: Int)], prompt: String?)?
     private var thumbnails: [UUID: NSImage] = [:]
     private var converting: [UUID: Material] = [:]
     var onCountChanged: (() -> Void)?
@@ -75,9 +75,9 @@ final class BasketStore: ObservableObject {
 
     func remove(_ id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-        if let previous = removed { library.discard(id: previous.0.id) }
+        discardPreviousRemoval()
         let item = items.remove(at: index)
-        removed = item.isLoading ? nil : (item, index)
+        removed = item.isLoading ? nil : ([(item, index)], nil)
         canUndo = removed != nil
         thumbnails[id] = nil
         if preview?.id == id { preview = nil }
@@ -86,12 +86,41 @@ final class BasketStore: ObservableObject {
     }
 
     func undoRemove() {
-        guard let (item, index) = removed else { return }
-        items.insert(item, at: min(index, items.count))
-        removed = nil
+        guard let removed else { return }
+        for entry in removed.items { items.insert(entry.item, at: min(entry.index, items.count)) }
+        if let previousPrompt = removed.prompt { prompt = previousPrompt }
+        self.removed = nil
         canUndo = false
         persist()
         onCountChanged?()
+    }
+
+    var hasContent: Bool { !items.isEmpty || !prompt.isEmpty }
+
+    func clearBasket() {
+        guard hasContent else { return }
+        discardPreviousRemoval()
+        let stableItems = items.enumerated().compactMap { index, item -> (item: Material, index: Int)? in
+            guard !item.isLoading else { return nil }
+            return (item, index)
+        }
+        removed = (stableItems, prompt)
+        items = []
+        prompt = ""
+        thumbnails = [:]
+        preview = nil
+        noteEditorID = nil
+        showPromptPreview = false
+        errorMessage = nil
+        statusMessage = nil
+        canUndo = true
+        persist()
+        onCountChanged?()
+    }
+
+    private func discardPreviousRemoval() {
+        for entry in removed?.items ?? [] { library.discard(id: entry.item.id) }
+        removed = nil
     }
 
     func thumbnail(for item: Material) -> NSImage? {
@@ -102,17 +131,19 @@ final class BasketStore: ObservableObject {
         return image
     }
 
-    func chooseFiles() {
+    func chooseFiles() { chooseFiles(mode: importMode) }
+
+    func chooseFiles(mode: FileImportMode) {
         isChoosingFiles = true
         let picker = NSOpenPanel()
         picker.title = "添加材料"
         picker.prompt = "添加"
         picker.allowsMultipleSelection = true
-        picker.canChooseDirectories = importMode == .reference
+        picker.canChooseDirectories = mode == .reference
         NSApp.activate(ignoringOtherApps: true)
         picker.begin { [weak self] response in
             self?.isChoosingFiles = false
-            if response == .OK { self?.add(picker.urls.map(IncomingMaterial.file)) }
+            if response == .OK { self?.add(picker.urls.map(IncomingMaterial.file), mode: mode) }
         }
         picker.makeKeyAndOrderFront(nil)
     }

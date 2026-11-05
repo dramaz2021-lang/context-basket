@@ -22,14 +22,15 @@ struct PromptTextEditor: NSViewRepresentable {
         editor.isAutomaticQuoteSubstitutionEnabled = false
         editor.isAutomaticDashSubstitutionEnabled = false
         editor.drawsBackground = false
-        editor.font = .systemFont(ofSize: 12)
+        editor.font = BubbleLayout.promptFont
         editor.textColor = .white.withAlphaComponent(0.9)
         editor.insertionPointColor = .white
-        editor.textContainerInset = NSSize(width: 4, height: 7)
+        editor.textContainerInset = .zero
         editor.isVerticallyResizable = true
         editor.isHorizontallyResizable = false
         editor.autoresizingMask = [.width]
         editor.textContainer?.widthTracksTextView = true
+        editor.textContainer?.lineFragmentPadding = 0
         editor.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         editor.string = store.prompt
         editor.setAccessibilityLabel("给 Agent 的指令")

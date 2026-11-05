@@ -12,8 +12,7 @@ final class ShelfHostingView: NSHostingView<ShelfView> {
         registerForDraggedTypes(DropReader.types)
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
-        layer?.cornerRadius = 24
-        layer?.masksToBounds = true
+        layer?.masksToBounds = false
     }
 
     @available(*, unavailable)

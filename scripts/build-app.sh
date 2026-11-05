@@ -9,7 +9,9 @@ mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 cp "$binary_dir/ContextBasket" "$bundle/Contents/MacOS/ContextBasket.new"
 mv -f "$bundle/Contents/MacOS/ContextBasket.new" "$bundle/Contents/MacOS/ContextBasket"
 cp Sources/ContextBasketApp/Resources/Info.plist "$bundle/Contents/Info.plist"
-swift scripts/make-icon.swift build/AppIcon.iconset
+mkdir -p build
+swiftc Sources/ContextBasketApp/Features/Basket/BasketArtwork.swift scripts/make-icon.swift -o build/make-icon
+build/make-icon build/AppIcon.iconset
 iconutil -c icns build/AppIcon.iconset -o "$bundle/Contents/Resources/AppIcon.icns"
 codesign --force --sign - "$bundle"
 printf 'Built %s\n' "$PWD/$bundle"
