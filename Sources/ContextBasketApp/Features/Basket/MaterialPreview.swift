@@ -15,7 +15,11 @@ struct MaterialPreview: View {
                 Button("完成") { dismiss() }.keyboardShortcut(.cancelAction)
             }.padding(18)
             Divider()
-            if let text = item.text {
+            if item.isReference, let url = item.sourceURL {
+                Text(url.path).font(.system(size: 11)).textSelection(.enabled).padding(12)
+                if FileManager.default.fileExists(atPath: url.path) { FileQuickLook(url: url).padding(12) }
+                else { Text("源文件已移动或无法访问，请重新添加地址。").foregroundStyle(.secondary).padding(24) }
+            } else if let text = item.text {
                 ScrollView {
                     Text(text).font(.system(size: 14)).lineSpacing(6).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(22)

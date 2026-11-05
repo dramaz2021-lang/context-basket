@@ -7,6 +7,9 @@ final class ShelfPanel: NSPanel {
     var undoRemoval: (() -> Void)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let editor = firstResponder as? NSTextView, editor.isEditable {
+            return super.performKeyEquivalent(with: event)
+        }
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command {
             switch event.charactersIgnoringModifiers {
             case "v": pasteMaterials?(); return true

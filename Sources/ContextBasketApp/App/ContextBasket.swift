@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         configureMenu()
-        panel = ShelfPanel(contentRect: NSRect(x: 0, y: 0, width: 420, height: 320), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel = ShelfPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: 500), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.title = "上下文篮"
         panel.isFloatingPanel = true
         panel.level = .floating
@@ -56,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel.setFrameOrigin(NSPoint(x: visible.maxX - panel.frame.width - 36, y: visible.midY - panel.frame.height / 2))
         }
         panel.orderFrontRegardless()
+        panel.makeFirstResponder(nil)
     }
 
     private func configureMenu() {
@@ -70,8 +71,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let edit = NSMenuItem()
         let editMenu = NSMenu(title: "编辑")
         editMenu.addItem(withTitle: "复制", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "粘贴材料", action: #selector(pasteMaterials), keyEquivalent: "v")
-        editMenu.addItem(withTitle: "撤销删除", action: #selector(undoRemoval), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "粘贴", action: #selector(pasteMaterials), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "撤销", action: #selector(undoRemoval), keyEquivalent: "z")
         editMenu.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         edit.submenu = editMenu
         mainMenu.addItem(edit)
@@ -92,12 +94,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showShelf() { panel.orderFrontRegardless() }
-    @objc private func pasteMaterials() { store.paste() }
-    @objc private func undoRemoval() { store.undoRemove() }
+    @objc private func pasteMaterials() {
+        if let editor = NSApp.keyWindow?.firstResponder as? NSTextView, editor.isEditable { editor.pasteAsPlainText(nil) }
+        else { store.paste() }
+    }
+    @objc private func undoRemoval() {
+        if let editor = NSApp.keyWindow?.firstResponder as? NSTextView, editor.isEditable { editor.undoManager?.undo() }
+        else { store.undoRemove() }
+    }
 
     #if DEBUG
     @objc private func showDragHarness() {
         dragHarness = makeDragHarness(store: store)
+        NSApp.activate(ignoringOtherApps: true)
         dragHarness?.makeKeyAndOrderFront(nil)
     }
     #endif
@@ -105,7 +114,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func resizeShelf() {
         guard panel != nil else { return }
         let rows = (store.items.count + 1) / 2
-        let height: CGFloat = store.items.isEmpty ? 320 : min(500, 112 + CGFloat(rows) * 167)
+        let available = (panel.screen ?? NSScreen.main)?.visibleFrame.height ?? 800
+        let height: CGFloat = min(available - 32, store.items.isEmpty ? 500 : min(710, 310 + CGFloat(rows) * 185))
         var frame = panel.frame
         frame.origin.y += frame.height - height
         frame.size.height = height

@@ -15,18 +15,35 @@ final class MaterialLibrary: @unchecked Sendable {
     }
 
     func load() throws -> [Material] {
-        guard FileManager.default.fileExists(atPath: index.path) else { return [] }
-        return try JSONDecoder().decode([Material].self, from: Data(contentsOf: index))
+        try loadDocument().items
+    }
+
+    func loadDocument() throws -> BasketDocument {
+        guard FileManager.default.fileExists(atPath: index.path) else {
+            return BasketDocument(items: [], prompt: "", importMode: .copy)
+        }
+        let data = try Data(contentsOf: index)
+        if let document = try? JSONDecoder().decode(BasketDocument.self, from: data) {
+            guard document.version == 2 else { throw ImportError.unknownVersion }
+            return document
+        }
+        return BasketDocument(items: try JSONDecoder().decode([Material].self, from: data), prompt: "", importMode: .copy)
     }
 
     func save(_ items: [Material]) throws {
-        let data = try JSONEncoder().encode(items.filter { !$0.isLoading })
+        try saveDocument(BasketDocument(items: items, prompt: "", importMode: .copy))
+    }
+
+    func saveDocument(_ document: BasketDocument) throws {
+        var saved = document
+        saved.items.removeAll { $0.isLoading }
+        let data = try JSONEncoder().encode(saved)
         try data.write(to: index, options: .atomic)
     }
 
     func url(for path: String) -> URL { directory.appendingPathComponent(path) }
 
-    func prepare(_ incoming: IncomingMaterial, id: UUID) throws -> Material {
+    func prepare(_ incoming: IncomingMaterial, id: UUID, mode: FileImportMode = .copy) throws -> Material {
         switch incoming {
         case .text(let text):
             return Material(id: id, kind: .text, title: incoming.title, text: text, detail: "\(text.count) 字")
@@ -44,17 +61,37 @@ final class MaterialLibrary: @unchecked Sendable {
         case .file(let original):
             let scoped = original.startAccessingSecurityScopedResource()
             defer { if scoped { original.stopAccessingSecurityScopedResource() } }
-            let values = try original.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            let values = try original.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .fileSizeKey])
+            if mode == .reference {
+                _ = try assetFolder(id)
+                var item: Material
+                if values.isDirectory == true {
+                    item = Material(id: id, kind: .file, title: original.lastPathComponent, detail: "文件夹 · 引用原位置")
+                } else {
+                    item = try fileMaterial(at: original, id: id)
+                    item.assetPath = nil
+                    item.text = nil
+                    if item.kind == .text { item.kind = .file }
+                }
+                item.sourceURL = original.standardizedFileURL
+                item.importMode = .reference
+                return item
+            }
             guard values.isRegularFile == true else { throw ImportError.unsupportedFolder }
             guard (values.fileSize ?? 0) <= 100 * 1024 * 1024 else { throw ImportError.tooLarge }
             let copy = try assetFolder(id).appendingPathComponent(original.lastPathComponent)
+            if FileManager.default.fileExists(atPath: copy.path) { try FileManager.default.removeItem(at: copy) }
             try FileManager.default.copyItem(at: original, to: copy)
-            return try fileMaterial(at: copy, id: id)
+            var item = try fileMaterial(at: copy, id: id)
+            item.sourceURL = original.standardizedFileURL
+            item.importMode = .copy
+            return item
         }
     }
 
     func discard(id: UUID) {
         try? FileManager.default.removeItem(at: directory.appendingPathComponent("assets/\(id.uuidString)"))
+        try? FileManager.default.removeItem(at: directory.appendingPathComponent("thumbnails/\(id.uuidString)"))
     }
 
     private func assetFolder(_ id: UUID) throws -> URL {
@@ -71,7 +108,9 @@ final class MaterialLibrary: @unchecked Sendable {
            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
            let width = properties[kCGImagePropertyPixelWidth] as? Int,
            let height = properties[kCGImagePropertyPixelHeight] as? Int {
-            let thumbnail = "assets/\(id.uuidString)/.preview.png"
+            let thumbnailFolder = directory.appendingPathComponent("thumbnails/\(id.uuidString)")
+            try FileManager.default.createDirectory(at: thumbnailFolder, withIntermediateDirectories: true)
+            let thumbnail = "thumbnails/\(id.uuidString)/preview.png"
             let options: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
@@ -95,12 +134,13 @@ final class MaterialLibrary: @unchecked Sendable {
 }
 
 enum ImportError: LocalizedError {
-    case unreadableImage, unsupportedFolder, tooLarge
+    case unreadableImage, unsupportedFolder, tooLarge, unknownVersion
     var errorDescription: String? {
         switch self {
         case .unreadableImage: return "这张图片无法读取，请换一个图片文件试试。"
-        case .unsupportedFolder: return "请拖入具体文件，暂不支持文件夹。"
+        case .unsupportedFolder: return "文件夹请使用“源文件地址”模式添加。"
         case .tooLarge: return "这份文件超过 100 MB，请先添加较小的材料。"
+        case .unknownVersion: return "此材料组由较新版本创建，请更新应用后再打开。"
         }
     }
 }

@@ -19,6 +19,7 @@ enum DropReader {
             if let value = item.string(forType: .URL), let url = webURL(value) { return .link(url) }
             if let value = item.string(forType: .string), !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 if let url = webURL(value) { return .link(url) }
+                if let url = localURL(value), FileManager.default.fileExists(atPath: url.path) { return .file(url) }
                 return .text(value)
             }
             if let data = item.data(forType: .rtf), let text = NSAttributedString(rtf: data, documentAttributes: nil)?.string, !text.isEmpty {
@@ -33,5 +34,12 @@ enum DropReader {
               let url = URL(string: value),
               ["https", "http"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else { return nil }
         return url
+    }
+
+    static func localURL(_ value: String) -> URL? {
+        guard !value.contains("\n") else { return nil }
+        if value.hasPrefix("file://"), let url = URL(string: value), url.isFileURL { return url.standardizedFileURL }
+        guard value.hasPrefix("/") || value.hasPrefix("~/") else { return nil }
+        return URL(fileURLWithPath: (value as NSString).expandingTildeInPath).standardizedFileURL
     }
 }
