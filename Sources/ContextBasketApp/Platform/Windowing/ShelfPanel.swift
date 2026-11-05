@@ -5,6 +5,14 @@ final class ShelfPanel: NSPanel {
     override var canBecomeMain: Bool { false }
     var pasteMaterials: (() -> Void)?
     var undoRemoval: (() -> Void)?
+    private(set) var lastEditingEventTime: TimeInterval = -.infinity
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, let editor = firstResponder as? NSTextView, editor.isEditable {
+            lastEditingEventTime = ProcessInfo.processInfo.systemUptime
+        }
+        super.sendEvent(event)
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if let editor = firstResponder as? NSTextView, editor.isEditable {

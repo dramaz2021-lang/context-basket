@@ -15,6 +15,7 @@ enum ContextBasket {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: ShelfPanel!
+    private var shelfController: FloatingShelfController!
     private var store: BasketStore!
     private var statusItem: NSStatusItem!
     #if DEBUG
@@ -46,16 +47,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.isReleasedWhenClosed = false
         panel.acceptsMouseMovedEvents = true
         panel.appearance = NSAppearance(named: .darkAqua)
-        panel.contentView = ShelfHostingView(store: store) { [weak self] in self?.panel.orderOut(nil) }
+        shelfController = FloatingShelfController(panel: panel, store: store)
         panel.pasteMaterials = { [weak self] in self?.store.paste() }
         panel.undoRemoval = { [weak self] in self?.store.undoRemove() }
-        store.onCountChanged = { [weak self] in self?.resizeShelf() }
-        resizeShelf()
+        store.onCountChanged = { [weak self] in self?.shelfController.updateSize() }
+        shelfController.updateSize()
         if let screen = NSScreen.main {
             let visible = screen.visibleFrame
             panel.setFrameOrigin(NSPoint(x: visible.maxX - panel.frame.width - 36, y: visible.midY - panel.frame.height / 2))
         }
-        panel.orderFrontRegardless()
+        shelfController.show()
         panel.makeFirstResponder(nil)
     }
 
@@ -93,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.toolTip = "显示上下文篮"
     }
 
-    @objc private func showShelf() { panel.orderFrontRegardless() }
+    @objc private func showShelf() { shelfController.show() }
     @objc private func pasteMaterials() {
         if let editor = NSApp.keyWindow?.firstResponder as? NSTextView, editor.isEditable { editor.pasteAsPlainText(nil) }
         else { store.paste() }
@@ -111,15 +112,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     #endif
 
-    private func resizeShelf() {
-        guard panel != nil else { return }
-        let rows = (store.items.count + 1) / 2
-        let available = (panel.screen ?? NSScreen.main)?.visibleFrame.height ?? 800
-        let height: CGFloat = min(available - 32, store.items.isEmpty ? 500 : min(710, 310 + CGFloat(rows) * 185))
-        var frame = panel.frame
-        frame.origin.y += frame.height - height
-        frame.size.height = height
-        if let screen = panel.screen, frame.minY < screen.visibleFrame.minY + 16 { frame.origin.y = screen.visibleFrame.minY + 16 }
-        panel.setFrame(frame, display: true, animate: false)
-    }
 }

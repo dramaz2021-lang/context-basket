@@ -18,12 +18,7 @@ struct ShelfView: View {
             promptEditor
             footer
         }
-        .background {
-            ZStack {
-                FrostedBackground()
-                Color(red: 0.12, green: 0.13, blue: 0.15).opacity(0.92)
-            }
-        }
+        .background(Color(red: 0.06, green: 0.08, blue: 0.10).opacity(0.56))
         .overlay { RoundedRectangle(cornerRadius: 24).strokeBorder(.white.opacity(0.14), lineWidth: 1).allowsHitTesting(false) }
         .overlay {
             if store.isDragOver {
@@ -304,12 +299,6 @@ private struct ShelfIconStyle: ButtonStyle {
         configuration.label.frame(width: 25, height: 26).foregroundStyle(.white.opacity(configuration.isPressed ? 1 : 0.5))
             .background(.white.opacity(configuration.isPressed ? 0.12 : 0.035), in: RoundedRectangle(cornerRadius: 7))
     }
-}
-private struct FrostedBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView(); view.material = .hudWindow; view.blendingMode = .behindWindow; view.state = .active; return view
-    }
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 private struct WindowDragArea: NSViewRepresentable {
     class Handle: NSView {

@@ -2,14 +2,17 @@ import AppKit
 import SwiftUI
 
 final class ShelfHostingView: NSHostingView<ShelfView> {
+    override var isOpaque: Bool { false }
     private let store: BasketStore
     private let promiseQueue = OperationQueue()
 
     init(store: BasketStore, close: @escaping () -> Void) {
         self.store = store
         super.init(rootView: ShelfView(store: store, close: close))
+        sizingOptions = []
         registerForDraggedTypes(DropReader.types)
         wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
         layer?.cornerRadius = 24
         layer?.masksToBounds = true
     }

@@ -13,6 +13,8 @@
 | Platform/DragAndDrop/PromptExporter | 固定格式拼接原文，生成独立导出快照 |
 | Platform/DragAndDrop/PromptDragSource | 原生多文件拖拽和半透明标签 |
 | Platform/Windowing | 非激活置顶面板，区分编辑与材料快捷键 |
+| Platform/Windowing/FloatingShelfController | 同一面板在图标与完整编辑区之间切换，保留 hosting view 和内容状态 |
+| Platform/Windowing/ShelfAutoHidePolicy | 移入/移出延时、交互期间暂缓、取消待收起动作 |
 | Platform/Persistence | 独立文件副本、源地址、缩略图、JSON 原子写入 |
 
 ## 导入
@@ -40,3 +42,11 @@ Application Support/ContextBasket：
 读取时兼容 0.1 的纯材料数组。旧材料缺少源地址时保持未知。JSON 使用原子写入，删除仅操作应用专属资产。
 
 不监听剪贴板、不下载链接、不调用模型、不自动执行指令。
+
+## 自动收起与透明度
+
+原生窗口和 hosting view 均不声明不透明，SwiftUI 根背景使用 56% 不透明度的深色填充，不叠加 NSVisualEffectView。卡片与输入框仅增加少量遮罩，文字和图片不整体降透明度。
+
+主线程定时读取鼠标位置，不使用全局键盘监听或额外权限。移出 0.55 秒收起，移入图标 0.16 秒展开，尺寸动画 0.18 秒。窗口保持原顶部位置，扩展时限制在当前屏幕可见区域。折叠只切换缓存的内容视图，不重建材料或指令。
+
+菜单、sheet、文件选择、拖拽期间暂停；本应用文本输入后的 1.5 秒以及输入法组词期间暂缓。文本框焦点本身不会锁定展开。图标保留原生文件接收能力，拖入时展开。

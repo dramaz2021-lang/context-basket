@@ -15,6 +15,7 @@ final class BasketStore: ObservableObject {
     @Published var showPromptPreview = false
     @Published var statusMessage: String?
     @Published var isExporting = false
+    @Published var isChoosingFiles = false
     @Published var activeDropMode: FileImportMode = .copy
     let library: MaterialLibrary
     private var removed: (Material, Int)?
@@ -97,6 +98,7 @@ final class BasketStore: ObservableObject {
     }
 
     func chooseFiles() {
+        isChoosingFiles = true
         let picker = NSOpenPanel()
         picker.title = "添加材料"
         picker.prompt = "添加"
@@ -104,6 +106,7 @@ final class BasketStore: ObservableObject {
         picker.canChooseDirectories = importMode == .reference
         NSApp.activate(ignoringOtherApps: true)
         picker.begin { [weak self] response in
+            self?.isChoosingFiles = false
             if response == .OK { self?.add(picker.urls.map(IncomingMaterial.file)) }
         }
         picker.makeKeyAndOrderFront(nil)
