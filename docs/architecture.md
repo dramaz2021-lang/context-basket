@@ -10,6 +10,9 @@
 | Features/Basket/ShelfView | 预览卡片、悬停操作、模式选择、说明与指令输入 |
 | Features/Basket/MaterialPreview | 原文和 Quick Look；引用预览指向源文件 |
 | Platform/DragAndDrop/DropReader | 一份材料选择一种表示，避免多格式重复导入 |
+| Platform/DragAndDrop/DropPolicy | 区分本机文件、图像/临时传输和文字，按落点选择副本、引用或文字编辑 |
+| Platform/DragAndDrop/MaterialDropCoordinator | 共享拖入反馈和导入流程，基于实际区域位置分流 |
+| Platform/Windowing/PromptTextEditor | 原生纯文字编辑器，文件/图片拖入转交上下文，不生成文本附件 |
 | Platform/DragAndDrop/PromptExporter | 固定格式拼接原文，生成独立导出快照 |
 | Platform/DragAndDrop/PromptDragSource | 原生多文件拖拽和半透明标签 |
 | Platform/Windowing | 非激活置顶面板，区分编辑与材料快捷键 |
@@ -20,6 +23,10 @@
 ## 导入
 
 拖入 / 主动粘贴 / 选文件 → 立即显示占位卡 → 后台复制或引用 → 更新卡片 → 保存。
+
+文件拖到上方材料区时展示左右两块色区，落点左侧为副本、右侧为引用。区域边界由真实布局中的 NSView 标记提供，不硬编码编辑框位置。纯图像和文件承诺没有稳定源地址，直接复制。
+
+指令编辑器关闭富文本和图像导入。文件/图像的拖入优先于同一项目的文字表示，统一转交导入流程且强制副本模式；不会把文件名或图像占位符插入指令。文字和网页 URL 使用原生文字插入及撤销。混合附件拖到指令区域时整组作为上下文导入。
 
 复制模式保留副本，同时记住真实来源以便切换。引用模式保存源地址和可选缩略图，不保存可导出的内容副本。文件承诺只提供临时传输位置，不能把它当源地址。加载期间删除不会让材料重现；转换期间的保存保留转换前的稳定材料。
 

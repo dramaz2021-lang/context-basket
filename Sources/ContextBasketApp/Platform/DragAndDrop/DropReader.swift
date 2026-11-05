@@ -16,7 +16,10 @@ enum DropReader {
             for type in [NSPasteboard.PasteboardType.png, .tiff] {
                 if let data = item.data(forType: type) { return .image(data) }
             }
-            if let value = item.string(forType: .URL), let url = webURL(value) { return .link(url) }
+            if let value = item.string(forType: .URL) {
+                if let url = webURL(value) { return .link(url) }
+                if let url = localURL(value) { return .file(url) }
+            }
             if let value = item.string(forType: .string), !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 if let url = webURL(value) { return .link(url) }
                 if let url = localURL(value), FileManager.default.fileExists(atPath: url.path) { return .file(url) }
@@ -34,6 +37,16 @@ enum DropReader {
               let url = URL(string: value),
               ["https", "http"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else { return nil }
         return url
+    }
+
+    static func plainText(_ pasteboard: NSPasteboard) -> String? {
+        let values = (pasteboard.pasteboardItems ?? []).compactMap { item -> String? in
+            if let value = item.string(forType: .string) { return value }
+            if let value = item.string(forType: .URL) { return value }
+            if let data = item.data(forType: .rtf) { return NSAttributedString(rtf: data, documentAttributes: nil)?.string }
+            return nil
+        }
+        return values.isEmpty ? nil : values.joined(separator: "\n")
     }
 
     static func localURL(_ value: String) -> URL? {

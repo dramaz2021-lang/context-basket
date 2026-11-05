@@ -8,29 +8,23 @@ private typealias ViewState<Value> = SwiftUI.State<Value>
 
 struct ShelfView: View {
     @ObservedObject var store: BasketStore
+    let drops: MaterialDropCoordinator
     let close: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            importOptions
-            if store.items.isEmpty { emptyState } else { materials }
+            VStack(spacing: 0) {
+                header
+                importOptions
+                if store.items.isEmpty { emptyState } else { materials }
+            }
+            .background(DropAreaMarker(coordinator: drops))
+            .overlay { collectionDropOverlay }
             promptEditor
             footer
         }
         .background(Color(red: 0.06, green: 0.08, blue: 0.10).opacity(0.56))
         .overlay { RoundedRectangle(cornerRadius: 24).strokeBorder(.white.opacity(0.14), lineWidth: 1).allowsHitTesting(false) }
-        .overlay {
-            if store.isDragOver {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 24).fill(.black.opacity(0.35))
-                    RoundedRectangle(cornerRadius: 20).strokeBorder(accent, style: StrokeStyle(lineWidth: 2, dash: [7, 5])).padding(7)
-                    Label(store.activeDropMode == .reference ? "松开，引用源文件地址" : "松开，添加副本", systemImage: "plus.circle.fill")
-                        .font(.system(size: 14, weight: .semibold)).foregroundStyle(accent)
-                        .padding(16).background(.black.opacity(0.8), in: Capsule())
-                }.allowsHitTesting(false)
-            }
-        }
         .clipShape(RoundedRectangle(cornerRadius: 24))
         .preferredColorScheme(.dark)
         .sheet(item: $store.preview) { MaterialPreview(item: $0, library: store.library) }
@@ -52,6 +46,13 @@ struct ShelfView: View {
                 Button("添加文件…", action: store.chooseFiles)
                 Button("添加链接或本机地址…") { store.showLocationEditor = true }
                 Button("粘贴为材料", action: store.paste)
+                Menu("选文件与粘贴的默认方式") {
+                    ForEach(FileImportMode.allCases, id: \.self) { mode in
+                        Button { store.setImportMode(mode) } label: {
+                            if store.importMode == mode { Label(mode.title, systemImage: "checkmark") } else { Text(mode.title) }
+                        }
+                    }
+                }
                 Button("撤销删除", action: store.undoRemove).disabled(!store.canUndo)
                 Divider()
                 Button("退出上下文篮") { NSApp.terminate(nil) }
@@ -66,20 +67,52 @@ struct ShelfView: View {
 
     private var importOptions: some View {
         HStack(spacing: 6) {
-            Text("拖入文件").foregroundStyle(.white.opacity(0.4))
-            Menu {
-                ForEach(FileImportMode.allCases, id: \.self) { mode in
-                    Button { store.setImportMode(mode) } label: {
-                        if store.importMode == mode { Label(mode.title, systemImage: "checkmark") } else { Text(mode.title) }
-                    }
-                }
-            } label: {
-                Label(store.importMode.title, systemImage: store.importMode == .copy ? "doc.on.doc" : "link").foregroundStyle(accent)
-            }.menuStyle(.borderlessButton).fixedSize().accessibilityLabel("文件导入方式：\(store.importMode.title)")
+            Text("拖入时选择副本或链接").foregroundStyle(.white.opacity(0.5))
             Spacer()
             Button { store.showLocationEditor = true } label: { Image(systemName: "link.badge.plus") }
                 .buttonStyle(.plain).foregroundStyle(.white.opacity(0.5)).help("添加链接或本机地址").accessibilityLabel("添加链接或本机地址")
         }.font(.system(size: 10)).padding(.horizontal, 18).padding(.bottom, 13)
+    }
+
+    @ViewBuilder private var collectionDropOverlay: some View {
+        if let feedback = store.dropFeedback, feedback.style != .promptText {
+            Group {
+                if feedback.style == .fileChoices {
+                    HStack(spacing: 10) {
+                        fileDropZone(.copy, selected: feedback.mode == .copy)
+                        fileDropZone(.reference, selected: feedback.mode == .reference)
+                    }
+                } else {
+                    VStack(spacing: 10) {
+                        Image(systemName: "tray.and.arrow.down.fill").font(.system(size: 30, weight: .light))
+                        Text("添加到上下文").font(.system(size: 18, weight: .semibold))
+                        Text(feedback.overPrompt ? "图片和文件会放在这里\n指令框只保留文字" : "松开，收进材料区")
+                            .font(.system(size: 11)).multilineTextAlignment(.center).lineSpacing(4)
+                    }
+                    .foregroundStyle(.white).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(red: 0.12, green: 0.34, blue: 0.27).opacity(0.88), in: RoundedRectangle(cornerRadius: 17))
+                    .overlay { RoundedRectangle(cornerRadius: 17).strokeBorder(accent, style: StrokeStyle(lineWidth: 2, dash: [6, 4])) }
+                }
+            }.padding(12).allowsHitTesting(false)
+        }
+    }
+
+    private func fileDropZone(_ mode: FileImportMode, selected: Bool) -> some View {
+        let color = mode == .copy ? Color(red: 0.45, green: 0.76, blue: 0.61) : Color(red: 0.48, green: 0.64, blue: 0.91)
+        return VStack(spacing: 12) {
+            Image(systemName: mode == .copy ? "doc.on.doc.fill" : "link").font(.system(size: 32, weight: .medium))
+            Text(mode == .copy ? "副本" : "链接").font(.system(size: 22, weight: .semibold))
+            Text(mode == .copy ? "收进一份独立副本\n保留原文件不变" : "引用本机源文件\n方便 Agent 定位原件")
+                .font(.system(size: 11)).multilineTextAlignment(.center).lineSpacing(5)
+            Text(selected ? "松开添加" : "拖到这里")
+                .font(.system(size: 10, weight: .medium)).padding(.horizontal, 11).padding(.vertical, 6)
+                .background(.white.opacity(selected ? 0.3 : 0.12), in: Capsule())
+        }
+        .foregroundStyle(Color(red: 0.06, green: 0.12, blue: 0.16))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(color.opacity(selected ? 0.94 : 0.76), in: RoundedRectangle(cornerRadius: 17))
+        .overlay { RoundedRectangle(cornerRadius: 17).strokeBorder(.white.opacity(selected ? 0.95 : 0.25), lineWidth: selected ? 3 : 1) }
+        .accessibilityLabel(mode == .copy ? "拖入副本区域" : "拖入源文件链接区域")
     }
 
     private var materials: some View {
@@ -121,7 +154,8 @@ struct ShelfView: View {
             HStack {
                 Label("给 Agent 的指令", systemImage: "text.bubble").font(.system(size: 11, weight: .medium))
                 Spacer()
-                Text("随材料一起带走").font(.system(size: 10)).foregroundStyle(.white.opacity(0.3))
+                Text(store.dropFeedback?.overPrompt == true && store.dropFeedback?.style == .context ? "图片、文件将加入上方材料区" : "随材料一起带走")
+                    .font(.system(size: 10)).foregroundStyle(store.dropFeedback?.overPrompt == true ? accent : .white.opacity(0.3))
             }.foregroundStyle(.white.opacity(0.65))
             ZStack(alignment: .topLeading) {
                 if store.prompt.isEmpty {
@@ -129,13 +163,13 @@ struct ShelfView: View {
                         .font(.system(size: 12)).lineSpacing(5).foregroundStyle(.white.opacity(0.25))
                         .padding(.horizontal, 5).padding(.top, 8).allowsHitTesting(false)
                 }
-                TextEditor(text: Binding(get: { store.prompt }, set: store.setPrompt))
-                    .font(.system(size: 12)).lineSpacing(4).scrollContentBackground(.hidden).accessibilityLabel("给 Agent 的指令")
+                PromptTextEditor(store: store, drops: drops)
             }
             .padding(7).frame(height: 104).background(.black.opacity(0.14), in: RoundedRectangle(cornerRadius: 12))
-            .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.08)).allowsHitTesting(false) }
+            .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(store.dropFeedback?.overPrompt == true ? accent.opacity(0.8) : .white.opacity(0.08)).allowsHitTesting(false) }
         }
         .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 12)
+        .background(DropAreaMarker(coordinator: drops, isPrompt: true))
         .background(alignment: .top) { Rectangle().fill(.white.opacity(0.07)).frame(height: 1).padding(.horizontal, 16) }
     }
 

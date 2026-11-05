@@ -4,7 +4,8 @@ import Combine
 @MainActor
 final class BasketStore: ObservableObject {
     @Published private(set) var items: [Material] = []
-    @Published var isDragOver = false
+    @Published var dropFeedback: DropFeedback?
+    var isDragOver: Bool { dropFeedback != nil }
     @Published var errorMessage: String?
     @Published var preview: Material?
     @Published private(set) var canUndo = false
@@ -16,7 +17,6 @@ final class BasketStore: ObservableObject {
     @Published var statusMessage: String?
     @Published var isExporting = false
     @Published var isChoosingFiles = false
-    @Published var activeDropMode: FileImportMode = .copy
     let library: MaterialLibrary
     private var removed: (Material, Int)?
     private var thumbnails: [UUID: NSImage] = [:]

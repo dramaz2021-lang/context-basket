@@ -17,10 +17,14 @@ func makeDragHarness(store: BasketStore) -> NSWindow {
     let container = NSView(frame: NSRect(x: 0, y: 0, width: 750, height: 710))
     let source = DragFixtureSource(frame: NSRect(x: 0, y: 400, width: 280, height: 310))
     source.fixture = fixture
-    let receiver = ExportFixtureReceiver(frame: NSRect(x: 15, y: 20, width: 255, height: 360))
+    source.previewStore = testStore
+    let preview = NSButton(title: "查看拖入分区", target: source, action: #selector(DragFixtureSource.previewZones))
+    preview.frame = NSRect(x: 50, y: 369, width: 180, height: 28)
+    let receiver = ExportFixtureReceiver(frame: NSRect(x: 15, y: 20, width: 255, height: 340))
     let destination = ShelfHostingView(store: testStore, close: {})
     destination.frame = NSRect(x: 285, y: 5, width: 460, height: 700)
     container.addSubview(source)
+    container.addSubview(preview)
     container.addSubview(receiver)
     container.addSubview(destination)
     window.contentView = container
@@ -29,21 +33,24 @@ func makeDragHarness(store: BasketStore) -> NSWindow {
 
 private final class DragFixtureSource: NSView, NSDraggingSource {
     var fixture: URL!
+    var previewStore: BasketStore!
+    @objc func previewZones() {
+        previewStore.dropFeedback = previewStore.dropFeedback == nil ? DropFeedback(style: .fileChoices) : nil
+    }
     override func draw(_ dirtyRect: NSRect) {
         NSColor.windowBackgroundColor.setFill()
         bounds.fill()
-        let rect = NSRect(x: 25, y: 100, width: 230, height: 125)
-        NSColor.systemGreen.withAlphaComponent(0.15).setFill()
-        NSBezierPath(roundedRect: rect, xRadius: 16, yRadius: 16).fill()
-        let text = "拖动这里 →\n文字 + 链接 + 图片\n+ 本机文件\n四个独立材料"
-        (text as NSString).draw(in: rect.insetBy(dx: 24, dy: 18), withAttributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.labelColor])
+        for (y, text) in [(210, "文件 → 左侧副本 / 右侧链接"), (115, "图片 → 拖到指令框"), (20, "文字 → 拖到指令框")] {
+            let rect = NSRect(x: 20, y: y, width: 240, height: 75)
+            NSColor.systemGreen.withAlphaComponent(0.15).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 14, yRadius: 14).fill()
+            (text as NSString).draw(in: rect.insetBy(dx: 15, dy: 24), withAttributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor])
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
         let text = NSPasteboardItem()
         text.setString("这是从原生拖拽会话加入的文字。\n每份材料都应该单独可见。", forType: .string)
-        let link = NSPasteboardItem()
-        link.setString("https://example.com/design-reference", forType: .URL)
         let image = NSImage(size: NSSize(width: 600, height: 400), flipped: false) { rect in
             NSColor(calibratedRed: 0.65, green: 0.78, blue: 0.70, alpha: 1).setFill()
             rect.fill()
@@ -57,9 +64,11 @@ private final class DragFixtureSource: NSView, NSDraggingSource {
         let icon = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)!
         let file = NSPasteboardItem()
         file.setString(fixture.absoluteString, forType: .fileURL)
-        let items = [text, link, picture, file].enumerated().map { index, content in
+        let point = convert(event.locationInWindow, from: nil)
+        let content = point.y >= 200 ? file : (point.y >= 110 ? picture : text)
+        let items = [content].enumerated().map { index, content in
             let item = NSDraggingItem(pasteboardWriter: content)
-            item.setDraggingFrame(NSRect(x: 100 + index * 8, y: 160, width: 50, height: 50), contents: icon)
+            item.setDraggingFrame(NSRect(x: point.x + CGFloat(index * 8), y: point.y, width: 50, height: 50), contents: icon)
             return item
         }
         beginDraggingSession(with: items, event: event, source: self)
