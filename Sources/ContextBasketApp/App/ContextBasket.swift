@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var shelfController: FloatingShelfController!
     private var store: BasketStore!
     private var statusItem: NSStatusItem!
+    private var clipboardMonitor: ClipboardMonitor?
     #if DEBUG
     private var dragHarness: NSWindow?
     #endif
@@ -29,7 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             store = BasketStore(library: try MaterialLibrary(directory: customDirectory))
         } catch {
             let alert = NSAlert()
-            alert.messageText = "无法打开上下文篮"
+            alert.messageText = "无法打开 context basket"
             alert.informativeText = "本地保存目录暂时无法访问：\(error.localizedDescription)"
             alert.runModal()
             NSApp.terminate(nil)
@@ -37,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         configureMenu()
         panel = ShelfPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: 500), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.title = "上下文篮"
+        panel.title = "context basket"
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
@@ -59,15 +60,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         shelfController.show()
         panel.makeFirstResponder(nil)
+        configureClipboardCollection()
     }
+
+    private func configureClipboardCollection() {
+        var pasteboard = NSPasteboard.general
+        #if DEBUG
+        // UI acceptance can exercise the real timer without reading the personal clipboard.
+        if let name = ProcessInfo.processInfo.environment["CONTEXT_BASKET_PASTEBOARD_NAME"] {
+            pasteboard = NSPasteboard(name: NSPasteboard.Name(name))
+        }
+        #endif
+        let monitor = ClipboardMonitor(store: store, pasteboard: pasteboard)
+        clipboardMonitor = monitor
+        store.onClipboardCollectionChanged = { [weak monitor] enabled in monitor?.setEnabled(enabled) }
+        monitor.setEnabled(store.automaticallyCollectClipboard)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) { clipboardMonitor?.setEnabled(false) }
 
     private func configureMenu() {
         let mainMenu = NSMenu()
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "显示上下文篮", action: #selector(showShelf), keyEquivalent: "0")
+        appMenu.addItem(withTitle: "显示 context basket", action: #selector(showShelf), keyEquivalent: "0")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "退出上下文篮", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "退出 context basket", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
         let edit = NSMenuItem()
@@ -89,10 +107,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = mainMenu
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "tray.full", accessibilityDescription: "上下文篮")
+        statusItem.button?.image = NSImage(systemSymbolName: "tray.full", accessibilityDescription: "context basket")
         statusItem.button?.target = self
         statusItem.button?.action = #selector(showShelf)
-        statusItem.button?.toolTip = "显示上下文篮"
+        statusItem.button?.toolTip = "显示 context basket"
     }
 
     @objc private func showShelf() { shelfController.show() }

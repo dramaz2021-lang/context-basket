@@ -8,10 +8,6 @@ final class FloatingShelfController {
     private let store: BasketStore
     private var expandedView: ShelfHostingView!
     private var compactView: CompactShelfHostingView!
-    private var timer: Timer?
-    private var observers: [NSObjectProtocol] = []
-    private var menuTracking = false
-    private var policy = ShelfAutoHidePolicy()
     private(set) var isCollapsed = false
     private var expandedSize = NSSize(width: 460, height: 500)
     private let compactSize = NSSize(width: 58, height: 58)
@@ -19,38 +15,17 @@ final class FloatingShelfController {
     init(panel: ShelfPanel, store: BasketStore) {
         self.panel = panel
         self.store = store
-        expandedView = ShelfHostingView(store: store) { [weak self] in self?.hide() }
+        expandedView = ShelfHostingView(store: store) { [weak self] in self?.collapse() }
         compactView = CompactShelfHostingView(store: store, expand: { [weak self] in self?.expand() }, receive: { [weak self] info in
             self?.expandedView.performDragOperation(info) ?? false
         })
         panel.contentView = expandedView
-        policy.suspendedUntil = ProcessInfo.processInfo.systemUptime + 1.2
-        let timer = Timer(timeInterval: 0.08, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateHover() }
-        }
-        self.timer = timer
-        timer.tolerance = 0.02
-        RunLoop.main.add(timer, forMode: .common)
-        observers.append(NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.menuTracking = true }
-        })
-        observers.append(NotificationCenter.default.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.menuTracking = false; self?.policy.reset() }
-        })
-    }
-
-    deinit {
-        timer?.invalidate()
-        observers.forEach(NotificationCenter.default.removeObserver)
     }
 
     func show() {
         expand()
         panel.orderFrontRegardless()
-        policy.suspendedUntil = ProcessInfo.processInfo.systemUptime + 1.2
     }
-
-    func hide() { panel.orderOut(nil); policy.reset() }
 
     func updateSize() {
         let rows = (store.items.count + 1) / 2
@@ -61,20 +36,17 @@ final class FloatingShelfController {
     }
 
     func expand() {
-        guard isCollapsed else { policy.reset(); return }
+        guard isCollapsed else { return }
         isCollapsed = false
-        policy.reset()
         // Keep the hosting view alive: scrolling and in-progress SwiftUI state survive folding.
         panel.contentView = expandedView
         setFrame(size: expandedSize, animate: true)
         panel.makeFirstResponder(nil)
-        policy.suspendedUntil = ProcessInfo.processInfo.systemUptime + 0.3
     }
 
-    private func collapse() {
+    func collapse() {
         guard !isCollapsed else { return }
         isCollapsed = true
-        policy.reset()
         panel.makeFirstResponder(nil)
         panel.contentView = compactView
         setFrame(size: compactSize, animate: true)
@@ -97,23 +69,7 @@ final class FloatingShelfController {
         } else { panel.setFrame(next, display: true) }
     }
 
-    private func updateHover() {
-        guard panel.isVisible else { policy.reset(); return }
-        let now = ProcessInfo.processInfo.systemUptime
-        let editor = panel.firstResponder as? NSTextView
-        // Focus alone must not pin the shelf open after the pointer leaves.
-        let editing = panel.isKeyWindow && editor?.isEditable == true
-            && (editor?.hasMarkedText() == true || now - panel.lastEditingEventTime < 1.5)
-        let interacting = editing || menuTracking || store.isDragOver || store.isExporting || store.isChoosingFiles
-            || panel.attachedSheet != nil || store.preview != nil || store.showLocationEditor || store.showPromptPreview
-            || NSEvent.pressedMouseButtons != 0
-        let action = policy.action(collapsed: isCollapsed, pointerInside: panel.frame.contains(NSEvent.mouseLocation), interacting: interacting, now: now)
-        switch action {
-        case .expand: expand()
-        case .collapse: collapse()
-        case nil: break
-        }
-    }
+
 }
 
 private struct CompactShelfView: View {
@@ -135,10 +91,10 @@ private struct CompactShelfView: View {
         .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.28)).allowsHitTesting(false) }
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("上下文篮悬浮图标，\(store.items.count) 项材料，移入展开")
+        .accessibilityLabel("context basket 悬浮图标，\(store.items.count) 项材料，点击展开")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { expand() }
-        .help("移入展开 · 拖动可移动")
+        .help("点击展开 · 拖文件到此展开 · 拖动图标可移动")
     }
 }
 

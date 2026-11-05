@@ -15,7 +15,6 @@ struct ShelfView: View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
                 header
-                importOptions
                 if store.items.isEmpty { emptyState } else { materials }
             }
             .background(DropAreaMarker(coordinator: drops))
@@ -34,18 +33,24 @@ struct ShelfView: View {
 
     private var header: some View {
         HStack(spacing: 9) {
-            Image(systemName: "tray.full.fill").font(.system(size: 17)).foregroundStyle(accent)
-            Text("上下文篮").font(.system(size: 14, weight: .semibold))
+            Button(action: close) {
+                Image(systemName: "tray.full.fill").font(.system(size: 17)).foregroundStyle(accent)
+            }.buttonStyle(.plain).help("收起为图标").accessibilityLabel("收起为图标")
+            Text("context basket").font(.system(size: 14, weight: .semibold))
             Text("\(store.items.count)").font(.system(size: 10, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white.opacity(0.6)).padding(.horizontal, 7).padding(.vertical, 3)
                 .background(.white.opacity(0.07), in: Capsule()).accessibilityLabel("\(store.items.count) 项材料")
             Spacer()
-            Button(action: store.chooseFiles) { Image(systemName: "plus") }
-                .buttonStyle(ShelfIconStyle()).help("添加文件").accessibilityLabel("添加文件")
+            Button(action: store.undoRemove) {
+                Image(systemName: "arrow.uturn.backward").font(.system(size: 11, weight: .semibold))
+            }
+            .buttonStyle(ShelfIconStyle()).disabled(!store.canUndo).opacity(store.canUndo ? 1 : 0.35)
+            .help("撤销删除").accessibilityLabel("撤销删除")
             Menu {
                 Button("添加文件…", action: store.chooseFiles)
                 Button("添加链接或本机地址…") { store.showLocationEditor = true }
                 Button("粘贴为材料", action: store.paste)
+                Toggle("自动收集剪贴板（副本）", isOn: Binding(get: { store.automaticallyCollectClipboard }, set: store.setAutomaticallyCollectClipboard))
                 Menu("选文件与粘贴的默认方式") {
                     ForEach(FileImportMode.allCases, id: \.self) { mode in
                         Button { store.setImportMode(mode) } label: {
@@ -53,25 +58,19 @@ struct ShelfView: View {
                         }
                     }
                 }
-                Button("撤销删除", action: store.undoRemove).disabled(!store.canUndo)
                 Divider()
-                Button("退出上下文篮") { NSApp.terminate(nil) }
-            } label: { Image(systemName: "ellipsis").frame(width: 24, height: 26) }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().accessibilityLabel("更多操作")
+                Button("退出 context basket") { NSApp.terminate(nil) }
+            } label: {
+                Image(systemName: "plus").frame(width: 25, height: 26)
+                    .foregroundStyle(.white.opacity(0.5))
+                    .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 7))
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("添加材料与设置").accessibilityLabel("添加材料与设置")
             Button(action: close) { Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)) }
                 .buttonStyle(ShelfIconStyle()).help("收起浮窗").accessibilityLabel("收起浮窗")
         }
         .foregroundStyle(.white.opacity(0.9)).padding(.horizontal, 17).frame(height: 56)
         .background(WindowDragArea())
-    }
-
-    private var importOptions: some View {
-        HStack(spacing: 6) {
-            Text("拖入时选择副本或链接").foregroundStyle(.white.opacity(0.5))
-            Spacer()
-            Button { store.showLocationEditor = true } label: { Image(systemName: "link.badge.plus") }
-                .buttonStyle(.plain).foregroundStyle(.white.opacity(0.5)).help("添加链接或本机地址").accessibilityLabel("添加链接或本机地址")
-        }.font(.system(size: 10)).padding(.horizontal, 18).padding(.bottom, 13)
     }
 
     @ViewBuilder private var collectionDropOverlay: some View {
@@ -83,12 +82,7 @@ struct ShelfView: View {
                         fileDropZone(.reference, selected: feedback.mode == .reference)
                     }
                 } else {
-                    VStack(spacing: 10) {
-                        Image(systemName: "tray.and.arrow.down.fill").font(.system(size: 30, weight: .light))
-                        Text("添加到上下文").font(.system(size: 18, weight: .semibold))
-                        Text("松开，收进材料区")
-                            .font(.system(size: 11)).multilineTextAlignment(.center).lineSpacing(4)
-                    }
+                    Image(systemName: "tray.and.arrow.down.fill").font(.system(size: 30, weight: .light))
                     .foregroundStyle(.white).frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(red: 0.12, green: 0.34, blue: 0.27).opacity(0.88), in: RoundedRectangle(cornerRadius: 17))
                     .overlay { RoundedRectangle(cornerRadius: 17).strokeBorder(accent, style: StrokeStyle(lineWidth: 2, dash: [6, 4])) }
@@ -102,11 +96,6 @@ struct ShelfView: View {
         return VStack(spacing: 12) {
             Image(systemName: mode == .copy ? "doc.on.doc.fill" : "link").font(.system(size: 32, weight: .medium))
             Text(mode == .copy ? "副本" : "链接").font(.system(size: 22, weight: .semibold))
-            Text(mode == .copy ? "收进一份独立副本\n保留原文件不变" : "引用本机源文件\n方便 Agent 定位原件")
-                .font(.system(size: 11)).multilineTextAlignment(.center).lineSpacing(5)
-            Text(selected ? "松开添加" : "拖到这里")
-                .font(.system(size: 10, weight: .medium)).padding(.horizontal, 11).padding(.vertical, 6)
-                .background(.white.opacity(selected ? 0.3 : 0.12), in: Capsule())
         }
         .foregroundStyle(Color(red: 0.06, green: 0.12, blue: 0.16))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -150,23 +139,9 @@ struct ShelfView: View {
     }
 
     private var promptEditor: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Label("给 Agent 的指令", systemImage: "text.bubble").font(.system(size: 11, weight: .medium))
-                Spacer()
-                Text("随材料一起带走").font(.system(size: 10)).foregroundStyle(.white.opacity(0.3))
-            }.foregroundStyle(.white.opacity(0.65))
-            ZStack(alignment: .topLeading) {
-                if store.prompt.isEmpty {
-                    Text("想让 Agent 做什么？\n可以边收集材料，边修改指令。")
-                        .font(.system(size: 12)).lineSpacing(5).foregroundStyle(.white.opacity(0.25))
-                        .padding(.horizontal, 5).padding(.top, 8).allowsHitTesting(false)
-                }
-                PromptTextEditor(store: store, drops: drops)
-            }
+        PromptTextEditor(store: store, drops: drops)
             .padding(7).frame(height: 104).background(.black.opacity(0.14), in: RoundedRectangle(cornerRadius: 12))
             .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(store.dropFeedback?.overPrompt == true ? accent.opacity(0.8) : .white.opacity(0.08)).allowsHitTesting(false) }
-        }
         .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 12)
         .background(DropAreaMarker(coordinator: drops, isPrompt: true))
         .background(alignment: .top) { Rectangle().fill(.white.opacity(0.07)).frame(height: 1).padding(.horizontal, 16) }
@@ -182,19 +157,15 @@ struct ShelfView: View {
                 }.font(.system(size: 10)).foregroundStyle(store.errorMessage == nil ? accent : .orange)
             }
             HStack(spacing: 13) {
-                Button { store.showPromptPreview = true } label: { Image(systemName: "doc.text.magnifyingglass") }
-                    .buttonStyle(.plain).help("预览完整 Prompt").accessibilityLabel("预览完整 Prompt")
-                Button("复制文字", action: store.copyPrompt).buttonStyle(.plain).font(.system(size: 11)).disabled(!store.canExport)
-                if store.canUndo { Button(action: store.undoRemove) { Image(systemName: "arrow.uturn.backward") }.buttonStyle(.plain).help("撤销删除").accessibilityLabel("撤销删除") }
+                Button(action: store.presentPromptPreview) { Label("预览完整 Prompt", systemImage: "doc.text.magnifyingglass") }
+                    .buttonStyle(PromptActionStyle()).help("预览完整 Prompt").accessibilityLabel("预览完整 Prompt").disabled(!store.canExport)
                 Spacer(minLength: 0)
-                Label("拖出全部", systemImage: "hand.draw").font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(store.canExport ? Color(white: 0.12) : .white.opacity(0.25))
-                    .padding(.horizontal, 14).frame(height: 32)
-                    .background(store.canExport ? accent : Color.white.opacity(0.06), in: Capsule())
-                    .overlay { PromptDragSource(store: store, clicked: { store.showPromptPreview = true }) }
-                    .help("拖动：指令、材料说明和副本附件；点击：预览 Prompt")
-                    .accessibilityElement(children: .ignore).accessibilityLabel("拖出全部，点击预览 Prompt")
-                    .accessibilityAddTraits(.isButton).accessibilityAction { store.showPromptPreview = true }
+                Button(action: store.copyPrompt) {
+                    Label("复制完整 Prompt", systemImage: "doc.on.clipboard")
+                }
+                .buttonStyle(PromptActionStyle()).disabled(!store.canExport)
+                .help("复制完整 Prompt 和附件，到 Agent 中粘贴")
+                .accessibilityLabel("复制完整 Prompt")
             }.foregroundStyle(.white.opacity(0.5))
         }.padding(.horizontal, 18).padding(.bottom, 16)
     }
@@ -230,9 +201,8 @@ private struct MaterialCard: View {
                 .contentShape(Rectangle()).onTapGesture(perform: preview)
             if editing {
                 VStack(alignment: .leading, spacing: 5) {
-                    TextField("说明它的用途或修改重点…", text: Binding(get: { item.note ?? "" }, set: { store.setNote(item.id, $0) }), axis: .vertical)
-                        .lineLimit(2...5).textFieldStyle(.plain).font(.system(size: 11)).accessibilityLabel("文件说明：\(item.title)")
-                    HStack { Spacer(); Button("完成") { store.noteEditorID = nil }.buttonStyle(.plain).foregroundStyle(accent).font(.system(size: 10)) }
+                    MaterialNoteEditor(store: store, itemID: item.id, title: item.title).frame(height: 56)
+                    HStack { Spacer(); Button("完成", action: store.finishNoteEditing).buttonStyle(.plain).foregroundStyle(accent).font(.system(size: 10)) }
                 }.padding(9).background(.black.opacity(0.15)).padding(.horizontal, 7).padding(.bottom, 7)
             } else if hasNote {
                 Button { store.editNote(item.id) } label: {
@@ -320,9 +290,22 @@ private struct PromptPreview: View {
             HStack { Text("完整 Prompt").font(.headline); Spacer(); Button("完成") { dismiss() }.keyboardShortcut(.cancelAction) }.padding(18)
             Divider()
             ScrollView { Text(store.promptText).font(.system(size: 12)).lineSpacing(5).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(20) }
-            Text("拖出全部会附带 PROMPT.txt 和副本文件；源地址保留在文字中。")
-                .font(.system(size: 10)).foregroundStyle(.secondary).padding(14)
+            HStack {
+                Spacer()
+                Button("复制完整 Prompt", action: store.copyPrompt).disabled(!store.canExport)
+            }.padding(14)
         }.frame(width: 520, height: 480).preferredColorScheme(.dark)
+    }
+}
+
+private struct PromptActionStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(isEnabled ? Color(white: 0.12) : .white.opacity(0.25))
+            .padding(.horizontal, 14).frame(height: 32)
+            .background(isEnabled ? accent : Color.white.opacity(0.06), in: Capsule())
+            .opacity(configuration.isPressed ? 0.85 : 1)
     }
 }
 

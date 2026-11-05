@@ -3,17 +3,19 @@ import Combine
 
 @MainActor
 final class BasketStore: ObservableObject {
-    @Published private(set) var items: [Material] = []
+    @Published private(set) var items: [Material] = [] { didSet { refreshPrompt() } }
     @Published var dropFeedback: DropFeedback?
     var isDragOver: Bool { dropFeedback != nil }
     @Published var errorMessage: String?
     @Published var preview: Material?
     @Published private(set) var canUndo = false
-    @Published private(set) var prompt = ""
+    @Published private(set) var prompt = "" { didSet { refreshPrompt() } }
     @Published private(set) var importMode: FileImportMode = .copy
+    @Published private(set) var automaticallyCollectClipboard = true
     @Published var noteEditorID: UUID?
     @Published var showLocationEditor = false
     @Published var showPromptPreview = false
+    @Published private(set) var promptText = ""
     @Published var statusMessage: String?
     @Published var isExporting = false
     @Published var isChoosingFiles = false
@@ -22,6 +24,7 @@ final class BasketStore: ObservableObject {
     private var thumbnails: [UUID: NSImage] = [:]
     private var converting: [UUID: Material] = [:]
     var onCountChanged: (() -> Void)?
+    var onClipboardCollectionChanged: ((Bool) -> Void)?
 
     init(library: MaterialLibrary) {
         self.library = library
@@ -30,8 +33,10 @@ final class BasketStore: ObservableObject {
             items = document.items
             prompt = document.prompt
             importMode = document.importMode
+            automaticallyCollectClipboard = document.automaticallyCollectClipboard
         }
         catch { errorMessage = "上次的材料暂时无法恢复。原文件仍保存在本机。" }
+        refreshPrompt()
     }
 
     @discardableResult
@@ -121,6 +126,13 @@ final class BasketStore: ObservableObject {
     func setPrompt(_ value: String) { prompt = value; persist() }
     func setImportMode(_ value: FileImportMode) { importMode = value; persist() }
 
+    func setAutomaticallyCollectClipboard(_ value: Bool) {
+        guard automaticallyCollectClipboard != value else { return }
+        automaticallyCollectClipboard = value
+        onClipboardCollectionChanged?(value)
+        persist()
+    }
+
     func setNote(_ id: UUID, _ value: String) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].note = value
@@ -128,6 +140,7 @@ final class BasketStore: ObservableObject {
     }
 
     func editNote(_ id: UUID) { noteEditorID = id }
+    func finishNoteEditing() { noteEditorID = nil }
 
     @discardableResult
     func changeMode(_ id: UUID, to mode: FileImportMode) -> Task<Void, Never>? {
@@ -173,17 +186,49 @@ final class BasketStore: ObservableObject {
         return true
     }
 
-    var promptText: String { PromptExporter.text(items: items, prompt: prompt) }
+    private func refreshPrompt() {
+        promptText = PromptExporter.text(items: items.filter { !$0.isLoading }, prompt: prompt)
+    }
     var canExport: Bool { (!items.isEmpty || !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) && !items.contains(where: \.isLoading) }
 
     func export(_ selection: [Material]? = nil) throws -> PromptBundle {
         try PromptExporter.create(items: selection ?? items, prompt: selection == nil ? prompt : "", library: library)
     }
 
-    func copyPrompt() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(promptText, forType: .string)
-        statusMessage = items.contains(where: { $0.assetPath != nil && !$0.isReference }) ? "已复制文字；副本附件请用“拖出全部”一起交付" : "Prompt 已复制"
+    func copyPrompt() { copyPrompt(to: .general) }
+
+    func copyPrompt(to pasteboard: NSPasteboard) {
+        do {
+            try PromptExporter.validate(items: items, prompt: prompt)
+            let text = promptText
+            // Include the task file: browsers suppress clipboard text when files are present.
+            // Finish the snapshot before replacing the user's clipboard.
+            let files = items.contains { !$0.isReference && $0.assetPath != nil }
+                ? try PromptExporter.create(items: items, prompt: prompt, library: library).files
+                : []
+            let item = NSPasteboardItem()
+            item.setString(text, forType: .string)
+            item.setString(ClipboardMonitor.sourceIdentifier, forType: ClipboardMonitor.sourceType)
+            // Keep text and the first file on one item so readers can discover both types.
+            if let first = files.first { item.setString(first.absoluteString, forType: .fileURL) }
+            var objects: [NSPasteboardWriting] = [item]
+            objects.append(contentsOf: files.dropFirst().map { $0 as NSURL })
+            pasteboard.clearContents()
+            guard pasteboard.writeObjects(objects) else {
+                errorMessage = "暂时无法写入剪贴板，请重试。"
+                return
+            }
+            errorMessage = nil
+            statusMessage = nil
+        } catch {
+            statusMessage = nil
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func presentPromptPreview() {
+        guard canExport else { return }
+        showPromptPreview = true
     }
 
     func previewURL(for item: Material) -> URL? {
@@ -208,7 +253,7 @@ final class BasketStore: ObservableObject {
             previous.note = item.note
             return previous
         }
-        do { try library.saveDocument(BasketDocument(items: stableItems, prompt: prompt, importMode: importMode)) }
+        do { try library.saveDocument(BasketDocument(items: stableItems, prompt: prompt, importMode: importMode, automaticallyCollectClipboard: automaticallyCollectClipboard)) }
         catch { errorMessage = "当前更改暂时无法保存：\(error.localizedDescription)" }
     }
 }

@@ -12,19 +12,21 @@
 | Features/Basket/MaterialOpenDestination | 按材料类型确定副本、真实源文件或原网址；失效引用报错 |
 | Platform/Windowing/SourceFilePreview | Finder 定位源文件，系统 Quick Look 面板预览同一真实地址 |
 | Platform/DragAndDrop/DropReader | 一份材料选择一种表示，避免多格式重复导入 |
+| Platform/Clipboard/ClipboardMonitor | 监测新剪贴板内容，强制副本导入，开关启停和本应用输出排除 |
 | Platform/DragAndDrop/DropPolicy | 区分本机文件、图像/临时传输和文字，按落点选择副本、引用或文字编辑 |
 | Platform/DragAndDrop/MaterialDropCoordinator | 共享拖入反馈和导入流程，基于实际区域位置分流 |
 | Platform/Windowing/PromptTextEditor | 原生纯文字编辑器，拒绝文件/图片拖入，不生成文本附件 |
-| Platform/DragAndDrop/PromptExporter | 固定格式拼接原文，生成独立导出快照 |
+| Platform/DragAndDrop/PromptExporter | 生成精简任务与附件说明；复制附件与单卡拖出时创建独立快照 |
 | Platform/DragAndDrop/PromptDragSource | 原生多文件拖拽和半透明标签 |
 | Platform/Windowing | 非激活置顶面板，区分编辑与材料快捷键 |
 | Platform/Windowing/FloatingShelfController | 同一面板在图标与完整编辑区之间切换，保留 hosting view 和内容状态 |
-| Platform/Windowing/ShelfAutoHidePolicy | 移入/移出延时、交互期间暂缓、取消待收起动作 |
 | Platform/Persistence | 独立文件副本、源地址、缩略图、JSON 原子写入 |
 
 ## 导入
 
-拖入 / 主动粘贴 / 选文件 → 立即显示占位卡 → 后台复制或引用 → 更新卡片 → 保存。
+拖入 / 主动粘贴 / 选文件 / 剪贴板自动收集 → 立即显示占位卡 → 后台复制或引用 → 更新卡片 → 保存。
+
+自动收集默认开启，由 AppDelegate 持有监听器，每 0.4 秒检查 NSPasteboard.changeCount，复用 DropReader 与 BasketStore.add(mode: .copy)。开启时只记录当前计数，下一次变化才读取，不补收旧内容。同一计数不重复导入，读取期间剪贴板变化则丢弃该次结果并等待下一次检查。“复制完整 Prompt”写入本应用来源标记，监听器排除自身输出及机密、临时、自动生成类型。Debug 可用 CONTEXT_BASKET_PASTEBOARD_NAME 绑定独立测试剪贴板。
 
 文件拖到上方材料区时展示左右两块色区，落点左侧为副本、右侧为引用。区域边界由真实布局中的 NSView 标记提供，不硬编码编辑框位置。纯图像和文件承诺没有稳定源地址，直接复制。
 
@@ -36,28 +38,32 @@
 
 点击卡片即打开材料，悬停只显示说明和删除按钮。副本保持应用内预览；源地址先验证原文件存在，再定位 Finder 并将同一 URL 交给系统 Quick Look；网页链接通过系统默认浏览器打开。AppDelegate 参与 Quick Look 控制器生命周期，只有取得面板控制权后才设置数据源。
 
-用户说明、指令均按原文保存。预览使用与导出相同的格式函数。拖动开始时验证材料，生成 exports/<UUID>/PROMPT.txt 以及带序号的副本附件。序号防止同名文件冲突。
+用户说明、指令和文字材料按原文保存。BasketStore 在材料或任务变化时更新 promptText，预览窗口直接观察此值；左侧“预览完整 Prompt”，右侧“复制完整 Prompt”，没有单独生成操作或成功提示。
 
-引用仅写入本机路径和 file URL，绝不把源文件 URL 作为拖动附件发送。找不到源文件则提示失败，不回退成另一份副本。PROMPT.txt 同时提供纯文字拖拽表示，目标应用自行选择读取文件还是文字。
+Prompt 只含“任务”和“附件说明”，附件以编号、名称和可选说明列出，文字内容原样内嵌。副本不输出路径或类型标签，不加使用约定；源地址材料保留原件路径。复制前验证材料状态。有副本附件时先创建独立快照，复制 PROMPT.txt 和全部附件；只有文字或源地址时直接复制文字。第一项同时提供 Prompt 纯文字、本应用来源标记和文件 URL，其余项提供附件 URL。快照失败保留原剪贴板。
 
-快照独立于正在编辑的篮子，删除卡片不会破坏已交付文件。缓存暂不自动回收；系统交付成功不代表 Agent 已读到任务。
+MaterialNoteEditor 使用原生纯文字编辑器，说明逐次保存；Return 完成并关闭编辑，Shift+Return 换行，输入法尚有 marked text 时先确认输入。
+
+Chromium 在系统剪贴板包含文件时会隐藏 text/plain 等其他类型，见 [ClipboardHostImpl](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/content/browser/renderer_host/clipboard_host_impl.cc)。因此有附件时同时交付 PROMPT.txt，保证一次粘贴也能带齐任务内容；纯文字格式仍为支持它的原生接收端保留。
+
+单张卡片保留原生文件拖出的辅助能力，仍交付 PROMPT.txt 和副本附件。复制与拖出的快照暂不自动回收。
 
 ## 保存
 
 Application Support/ContextBasket：
-- basket.json：version=2，材料、说明、prompt、importMode。
+- basket.json：version=2，材料、说明、prompt、importMode、automaticallyCollectClipboard；旧文档缺少自动收集字段时默认开启。
 - assets/<UUID>/：导入副本。
 - thumbnails/<UUID>/：预览缓存，与用户文件名隔离。
-- exports/<UUID>/：不可变拖出快照。
+- exports/<UUID>/：复制与拖出的不可变快照。
 
 读取时兼容 0.1 的纯材料数组。旧材料缺少源地址时保持未知。JSON 使用原子写入，删除仅操作应用专属资产。
 
-不监听剪贴板、不下载链接、不调用模型、不自动执行指令。
+剪贴板监听可以关闭。不下载链接、不调用模型、不自动执行指令。
 
-## 自动收起与透明度
+## 手动展开/收起与透明度
 
 原生窗口和 hosting view 均不声明不透明，SwiftUI 根背景使用 56% 不透明度的深色填充，不叠加 NSVisualEffectView。卡片与输入框仅增加少量遮罩，文字和图片不整体降透明度。
 
-主线程定时读取鼠标位置，不使用全局键盘监听或额外权限。移出 0.55 秒收起，移入图标 0.16 秒展开，尺寸动画 0.18 秒。窗口保持原顶部位置，扩展时限制在当前屏幕可见区域。折叠只切换缓存的内容视图，不重建材料或指令。
+没有鼠标位置轮询和自动收起定时器。点击折叠图标展开，点击展开后的左上图标或右上收起按钮缩回；鼠标移入、停留和移出都不切换状态。图标保留原生文件接收能力，拖文件进入时直接展开。
 
-菜单、sheet、文件选择、拖拽期间暂停；本应用文本输入后的 1.5 秒以及输入法组词期间暂缓。文本框焦点本身不会锁定展开。图标保留原生文件接收能力，拖入时展开。
+尺寸动画 0.18 秒，窗口保持原顶部位置，扩展时限制在当前屏幕可见区域。折叠只切换缓存的内容视图，不重建材料、说明或指令；收起后仍显示图标。

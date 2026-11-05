@@ -7,6 +7,121 @@ struct PromptTests {
     private func library() throws -> MaterialLibrary {
         try MaterialLibrary(directory: FileManager.default.temporaryDirectory.appendingPathComponent("PromptTests-\(UUID())"))
     }
+
+    @Test func copiedPromptOnlyContainsTaskAndAttachmentDescription() async throws {
+        let library = try library()
+        defer { try? FileManager.default.removeItem(at: library.directory) }
+        let source = library.directory.appendingPathComponent("材料模板.docx")
+        try Data("synthetic document".utf8).write(to: source)
+        let store = BasketStore(library: library)
+        for task in store.add([.file(source)]) { await task.value }
+        store.setNote(try #require(store.items.first?.id), "用这个当作模板")
+        store.setPrompt("根据模板撰写说明。")
+        let expected = "任务：\n根据模板撰写说明。\n\n附件说明：\n1. 材料模板.docx：用这个当作模板\n"
+        #expect(store.promptText == expected)
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        store.presentPromptPreview()
+        store.copyPrompt(to: board)
+        #expect(board.string(forType: .string) == expected)
+        #expect(store.statusMessage == nil)
+        let files = try #require(board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL])
+        #expect(files.map(\.lastPathComponent) == ["PROMPT.txt", "01-材料模板.docx"])
+        #expect(try String(contentsOf: files[0], encoding: .utf8) == expected)
+        #expect(try Data(contentsOf: files[1]) == Data("synthetic document".utf8))
+        #expect(try Data(contentsOf: source) == Data("synthetic document".utf8))
+    }
+
+    @Test func promptRefreshesAsMaterialsAndNotesChangeWhilePreviewIsOpen() async throws {
+        let library = try library()
+        defer { try? FileManager.default.removeItem(at: library.directory) }
+        let store = BasketStore(library: library)
+        store.setPrompt("整理材料")
+        store.presentPromptPreview()
+        #expect(store.showPromptPreview)
+        let original = "原文 🌿\n  保留缩进  \n```swift\nlet x = 1\n```"
+        for task in store.add([.text(original)]) { await task.value }
+        #expect(store.promptText.contains(original))
+        #expect(store.promptText.contains("1. 文字材料"))
+        let id = try #require(store.items.first?.id)
+        store.setNote(id, "参考这段原文")
+        #expect(store.promptText.contains("1. 文字材料：参考这段原文"))
+        store.setPrompt("新的任务")
+        #expect(store.promptText.hasPrefix("任务：\n新的任务\n"))
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        store.copyPrompt(to: board)
+        #expect(board.string(forType: .string) == store.promptText)
+        store.remove(id)
+        #expect(!store.promptText.contains(original))
+        store.undoRemove()
+        #expect(store.promptText.contains(original))
+        #expect(!FileManager.default.fileExists(atPath: library.directory.appendingPathComponent("exports").path))
+    }
+
+    @Test func copiedFilesAndImagesStayReadableWithoutCollectingThemselves() async throws {
+        let library = try library()
+        defer { try? FileManager.default.removeItem(at: library.directory) }
+        let source = library.directory.appendingPathComponent("template.docx")
+        let original = Data("synthetic document".utf8)
+        try original.write(to: source)
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        bitmap.setColor(.systemGreen, atX: 0, y: 0)
+        let image = try #require(bitmap.representation(using: .png, properties: [:]))
+        let store = BasketStore(library: library)
+        for task in store.add([.file(source), .image(image), .file(source), .text("文字直接放进 Prompt")]) { await task.value }
+        for task in store.add([.file(source)], mode: .reference) { await task.value }
+        store.setPrompt("参考附件")
+        let expectedText = store.promptText
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let monitor = ClipboardMonitor(store: store, pasteboard: board)
+        monitor.setEnabled(true)
+        defer { monitor.setEnabled(false) }
+        store.copyPrompt(to: board)
+        let files = try #require(board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL])
+        #expect(files.map(\.lastPathComponent) == ["PROMPT.txt", "01-template.docx", "02-图片.png", "03-template.docx"])
+        #expect(files.count == 4)
+        #expect(board.string(forType: .string) == expectedText)
+        #expect(board.pasteboardItems?.filter { $0.string(forType: .string) != nil }.count == 1)
+        #expect(monitor.poll().isEmpty)
+        #expect(store.items.count == 5)
+        #expect(!files.contains(source))
+        for id in store.items.map(\.id) { store.remove(id) }
+        try Data("changed source".utf8).write(to: source)
+        #expect(try String(contentsOf: files[0], encoding: .utf8) == expectedText)
+        #expect(try Data(contentsOf: files[1]) == original)
+        #expect(try Data(contentsOf: files[3]) == original)
+        #expect(NSImage(contentsOf: files[2]) != nil)
+        #expect(board.string(forType: .string) == expectedText)
+    }
+
+    @Test func failedCopyLeavesTheClipboardUntouched() async throws {
+        let library = try library()
+        defer { try? FileManager.default.removeItem(at: library.directory) }
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        board.setString("保留现有剪贴板", forType: .string)
+        let store = BasketStore(library: library)
+        store.copyPrompt(to: board)
+        #expect(board.string(forType: .string) == "保留现有剪贴板")
+        let source = library.directory.appendingPathComponent("original.txt")
+        try "原件".write(to: source, atomically: true, encoding: .utf8)
+        for task in store.add([.file(source)], mode: .reference) { await task.value }
+        store.presentPromptPreview()
+        try FileManager.default.removeItem(at: source)
+        store.copyPrompt(to: board)
+        #expect(board.string(forType: .string) == "保留现有剪贴板")
+        #expect(store.errorMessage?.contains("找不到源文件") == true)
+        store.remove(try #require(store.items.first?.id))
+        try "副本内容".write(to: source, atomically: true, encoding: .utf8)
+        for task in store.add([.file(source)]) { await task.value }
+        let asset = try #require(store.items.first?.assetPath)
+        try FileManager.default.removeItem(at: library.url(for: asset))
+        store.copyPrompt(to: board)
+        #expect(board.string(forType: .string) == "保留现有剪贴板")
+        #expect(store.errorMessage != nil)
+    }
     @Test func legacyBasketMigratesWithoutInventingSource() throws {
         let library = try library()
         defer { try? FileManager.default.removeItem(at: library.directory) }

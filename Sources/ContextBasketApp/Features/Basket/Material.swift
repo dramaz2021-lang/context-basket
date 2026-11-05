@@ -37,6 +37,22 @@ struct BasketDocument: Codable, Sendable {
     var items: [Material]
     var prompt: String
     var importMode: FileImportMode
+    var automaticallyCollectClipboard = true
+}
+
+extension BasketDocument {
+    private enum CodingKeys: String, CodingKey {
+        case version, items, prompt, importMode, automaticallyCollectClipboard
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        items = try values.decode([Material].self, forKey: .items)
+        prompt = try values.decode(String.self, forKey: .prompt)
+        importMode = try values.decode(FileImportMode.self, forKey: .importMode)
+        automaticallyCollectClipboard = try values.decodeIfPresent(Bool.self, forKey: .automaticallyCollectClipboard) ?? true
+    }
 }
 
 enum IncomingMaterial: Sendable {
