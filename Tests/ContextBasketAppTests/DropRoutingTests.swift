@@ -125,6 +125,38 @@ import Testing
         #expect(store.items.isEmpty)
     }
 
+    @Test func dropZonesFollowTheMovingAddBubble() throws {
+        _ = NSApplication.shared
+        let library = try library()
+        defer { try? FileManager.default.removeItem(at: library.directory) }
+        let drops = MaterialDropCoordinator(store: BasketStore(library: library))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 700), styleMask: .borderless, backing: .buffered, defer: false)
+        let content = try #require(window.contentView)
+        let addBubble = NSView(frame: NSRect(x: 0, y: 0, width: 224, height: 154))
+        let secondBubble = NSView(frame: NSRect(x: 236, y: 0, width: 224, height: 154))
+        let promptBubble = NSView(frame: NSRect(x: 0, y: 542, width: 460, height: 86))
+        let icon = NSView(frame: NSRect(x: 0, y: 642, width: 58, height: 58))
+        [addBubble, secondBubble, promptBubble, icon].forEach(content.addSubview)
+        drops.registerCollectionArea(addBubble, slot: 0)
+        drops.registerCollectionArea(secondBubble, slot: 1)
+        drops.promptArea = promptBubble
+        drops.iconArea = icon
+        #expect(drops.location(at: NSPoint(x: 50, y: 58)) == .collectionLeft)
+        #expect(drops.location(at: NSPoint(x: 175, y: 58)) == .collectionRight)
+        #expect(drops.location(at: NSPoint(x: 270, y: 58)) == .collectionLeft)
+        #expect(drops.location(at: NSPoint(x: 400, y: 58)) == .collectionRight)
+        #expect(drops.location(at: NSPoint(x: 230, y: 58)) == .other)
+        #expect(drops.location(at: NSPoint(x: 230, y: 580)) == .prompt)
+        #expect(drops.location(at: NSPoint(x: 29, y: 670)) == .collectionLeft)
+        #expect(drops.location(at: NSPoint(x: 350, y: 640)) == .other)
+        addBubble.setFrameOrigin(NSPoint(x: 0, y: 200))
+        #expect(drops.location(at: NSPoint(x: 50, y: 58)) == .other)
+        #expect(drops.location(at: NSPoint(x: 50, y: 250)) == .collectionLeft)
+        #expect(drops.location(at: NSPoint(x: 175, y: 250)) == .collectionRight)
+        secondBubble.removeFromSuperview()
+        #expect(drops.location(at: NSPoint(x: 400, y: 58)) == .other)
+    }
+
     @Test func onlyStableFilesOfferTwoChoices() {
         let files = DropProfile(hasLocalFiles: true, hasAttachments: true, hasText: true)
         #expect(DropPolicy.feedback(profile: files, location: .collectionLeft) == DropFeedback(style: .fileChoices, mode: .copy))
@@ -137,5 +169,40 @@ import Testing
         #expect(DropPolicy.feedback(profile: image, location: .prompt) == nil)
         #expect(DropPolicy.feedback(profile: DropProfile(hasText: true), location: .prompt)?.style == .promptText)
         #expect(DropPolicy.feedback(profile: DropProfile(), location: .collectionRight) == nil)
+    }
+
+    @Test func gridDropMarkersSurviveAddingAndClearingMaterials() async throws {
+        _ = NSApplication.shared
+        let library = try library()
+        defer { try? FileManager.default.removeItem(at: library.directory) }
+        let store = BasketStore(library: library)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 700), styleMask: .borderless, backing: .buffered, defer: false)
+        let host = ShelfHostingView(store: store, close: {})
+        window.contentView = host
+        defer { window.orderOut(nil) }
+
+        func markers(in view: NSView) -> [DropAreaMarker.Marker] {
+            (view as? DropAreaMarker.Marker).map { [$0] } ?? view.subviews.flatMap { markers(in: $0) }
+        }
+        func checkSlots(_ expected: Int) async throws {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(100))
+            host.layoutSubtreeIfNeeded()
+            let slots = markers(in: host).filter { abs($0.bounds.width - BubbleLayout.cardWidth) < 1 && !$0.isHiddenOrHasHiddenAncestor }
+            #expect(slots.count == expected)
+            for slot in slots {
+                let left = slot.convert(NSPoint(x: slot.bounds.width * 0.25, y: slot.bounds.midY), to: nil)
+                let right = slot.convert(NSPoint(x: slot.bounds.width * 0.75, y: slot.bounds.midY), to: nil)
+                #expect(host.drops.location(at: left) == .collectionLeft)
+                #expect(host.drops.location(at: right) == .collectionRight)
+            }
+        }
+        try await checkSlots(2)
+        for task in store.add([.text("第一份")]) { await task.value }
+        try await checkSlots(1)
+        for task in store.add([.text("第二份")]) { await task.value }
+        try await checkSlots(2)
+        store.clearBasket()
+        try await checkSlots(2)
     }
 }

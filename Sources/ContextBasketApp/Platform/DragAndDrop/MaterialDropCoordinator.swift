@@ -5,23 +5,42 @@ import SwiftUI
 final class MaterialDropCoordinator {
     private let store: BasketStore
     private let promiseQueue = OperationQueue()
-    weak var collectionArea: NSView?
+    private struct WeakArea { weak var view: NSView? }
+    private var collectionAreas: [Int: WeakArea] = [:]
     weak var promptArea: NSView?
+    weak var iconArea: NSView?
 
     init(store: BasketStore) { self.store = store }
 
+    func registerCollectionArea(_ view: NSView, slot: Int) { collectionAreas[slot] = WeakArea(view: view) }
+
     func location(for sender: NSDraggingInfo) -> DropLocation {
-        if let area = promptArea, area.bounds.contains(area.convert(sender.draggingLocation, from: nil)) { return .prompt }
-        if let area = collectionArea {
-            let point = area.convert(sender.draggingLocation, from: nil)
+        location(at: sender.draggingLocation)
+    }
+
+    func location(at windowPoint: NSPoint) -> DropLocation {
+        if let area = promptArea, area.bounds.contains(area.convert(windowPoint, from: nil)) { return .prompt }
+        if let area = iconArea, area.bounds.contains(area.convert(windowPoint, from: nil)) { return .collectionLeft }
+        if let (_, area) = collectionTarget(at: windowPoint) {
+            let point = area.convert(windowPoint, from: nil)
             if area.bounds.contains(point) { return point.x < area.bounds.midX ? .collectionLeft : .collectionRight }
         }
         return .other
     }
 
+    private func collectionTarget(at windowPoint: NSPoint) -> (Int, NSView)? {
+        for (slot, entry) in collectionAreas {
+            guard let area = entry.view, area.window != nil, !area.isHiddenOrHasHiddenAncestor else { continue }
+            let point = area.convert(windowPoint, from: nil)
+            if area.bounds.contains(point), area.visibleRect.contains(point) { return (slot, area) }
+        }
+        return nil
+    }
+
     func update(_ sender: NSDraggingInfo, at location: DropLocation? = nil) -> NSDragOperation {
         guard !store.isExporting else { end(); return [] }
-        let next = DropPolicy.feedback(profile: .inspect(sender.draggingPasteboard), location: location ?? self.location(for: sender))
+        var next = DropPolicy.feedback(profile: .inspect(sender.draggingPasteboard), location: location ?? self.location(for: sender))
+        next?.targetSlot = collectionTarget(at: sender.draggingLocation)?.0
         if store.dropFeedback != next { store.dropFeedback = next }
         return next == nil ? [] : .copy
     }
@@ -63,13 +82,21 @@ final class MaterialDropCoordinator {
 struct DropAreaMarker: NSViewRepresentable {
     let coordinator: MaterialDropCoordinator
     var isPrompt = false
+    var isIcon = false
+    var slot = 0
     final class Marker: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
     func makeNSView(context: Context) -> Marker {
         let view = Marker()
-        if isPrompt { coordinator.promptArea = view } else { coordinator.collectionArea = view }
+        register(view)
         return view
     }
-    func updateNSView(_ view: Marker, context: Context) {}
+    func updateNSView(_ view: Marker, context: Context) { register(view) }
+
+    private func register(_ view: Marker) {
+        if isPrompt { coordinator.promptArea = view }
+        else if isIcon { coordinator.iconArea = view }
+        else { coordinator.registerCollectionArea(view, slot: slot) }
+    }
 }

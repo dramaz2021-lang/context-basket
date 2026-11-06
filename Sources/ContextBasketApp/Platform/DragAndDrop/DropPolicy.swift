@@ -29,6 +29,7 @@ struct DropFeedback: Equatable {
     var style: Style
     var mode: FileImportMode = .copy
     var overPrompt = false
+    var targetSlot: Int?
 }
 
 enum DropPolicy {

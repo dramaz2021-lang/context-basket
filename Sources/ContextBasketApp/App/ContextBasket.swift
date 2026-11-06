@@ -52,11 +52,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         shelfController = FloatingShelfController(panel: panel, store: store)
         panel.pasteMaterials = { [weak self] in self?.store.paste() }
         panel.undoRemoval = { [weak self] in self?.store.undoRemove() }
-        store.onCountChanged = { [weak self] in self?.shelfController.updateSize() }
         shelfController.updateSize()
         if let screen = NSScreen.main {
             let visible = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: visible.maxX - panel.frame.width - 36, y: visible.midY - panel.frame.height / 2))
+            panel.setFrameOrigin(NSPoint(x: visible.maxX - BubbleLayout.expandedWidth - 36, y: visible.midY))
         }
         shelfController.show()
         panel.makeFirstResponder(nil)
@@ -107,10 +106,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = mainMenu
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "tray.full", accessibilityDescription: "context basket")
+        statusItem.button?.image = BasketArtwork.image(size: 20, template: true)
         statusItem.button?.target = self
-        statusItem.button?.action = #selector(showShelf)
-        statusItem.button?.toolTip = "显示 context basket"
+        statusItem.button?.action = #selector(statusIconClicked(_:))
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        statusItem.button?.toolTip = "点击显示 context basket · 右键退出"
+    }
+
+    @objc private func statusIconClicked(_ sender: NSStatusBarButton) {
+        if let event = NSApp.currentEvent, event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
+            NSMenu.popUpContextMenu(BasketIconMenu.make(), with: event, for: sender)
+        } else {
+            showShelf()
+        }
     }
 
     @objc private func showShelf() { shelfController.show() }

@@ -11,17 +11,19 @@ struct MaterialNoteEditor: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
         scroll.drawsBackground = false
+        scroll.scrollerStyle = .overlay
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         let editor = MaterialNoteTextView(frame: .zero)
+        editor.placeholder = "输入附件说明"
         editor.delegate = context.coordinator
         editor.isRichText = false
         editor.importsGraphics = false
         editor.allowsUndo = true
         editor.drawsBackground = false
         editor.font = .systemFont(ofSize: 11)
-        editor.textColor = .white.withAlphaComponent(0.9)
-        editor.insertionPointColor = .white
+        editor.textColor = .black
+        editor.insertionPointColor = .black
         editor.isAutomaticQuoteSubstitutionEnabled = false
         editor.isAutomaticDashSubstitutionEnabled = false
         editor.isVerticallyResizable = true
@@ -63,7 +65,7 @@ struct MaterialNoteEditor: NSViewRepresentable {
     }
 }
 
-final class MaterialNoteTextView: NSTextView {
+final class MaterialNoteTextView: PlaceholderTextView {
     var onSubmit: () -> Void = {}
 
     override func doCommand(by selector: Selector) {
