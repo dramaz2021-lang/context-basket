@@ -54,12 +54,6 @@ struct ShelfView: View {
 
     private var promptBubble: some View {
         PromptTextEditor(store: store, drops: drops)
-            .overlay(alignment: .topLeading) {
-                if store.prompt.isEmpty {
-                    Text("输入指令").font(.system(size: 13)).foregroundStyle(.white.opacity(0.48))
-                        .allowsHitTesting(false).accessibilityHidden(true)
-                }
-            }
             .padding(.horizontal, BubbleLayout.promptPadding).padding(.vertical, 12)
             .frame(width: BubbleLayout.promptWidth, height: BubbleLayout.promptHeight(for: store.prompt))
             .basketGlass(cornerRadius: 22)
@@ -93,7 +87,7 @@ struct ShelfView: View {
                 DispatchQueue.main.async { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("\(addBubbleID)-0", anchor: .bottom) } }
             }
             .onChange(of: store.noteEditorID) { _, id in
-                if let id { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .bottom) } }
+                if let id { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id) } }
             }
         }
         .frame(width: BubbleLayout.collectionWidth)
@@ -185,8 +179,12 @@ private struct MaterialCard: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topLeading) {
                 Color.clear
-                cardContent
-                PromptDragSource(store: store, material: item, clicked: preview, hoverChanged: { hovered = $0 })
+                if editing {
+                    noteEditor
+                } else {
+                    cardContent
+                    PromptDragSource(store: store, material: item, clicked: preview, hoverChanged: { hovered = $0 })
+                }
                 HStack {
                     Text(item.modeLabel).font(.system(size: 8, weight: .medium))
                         .foregroundStyle(.white.opacity(0.82))
@@ -194,34 +192,25 @@ private struct MaterialCard: View {
                     Spacer(minLength: 0)
                     if hovered || editing { actions }
                 }.padding(6)
-            }.frame(height: 110).clipped()
+            }
+            .frame(height: BubbleLayout.cardHeight - BubbleLayout.cardDetailsHeight - (!editing && hasNote ? BubbleLayout.noteSummaryHeight : 0))
+            .clipped()
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.title).font(.system(size: 11, weight: .medium)).lineLimit(1).truncationMode(.middle).foregroundStyle(.white.opacity(0.85))
                 Text(item.isReference ? (item.sourceURL?.path ?? "源地址不可用") : item.detail)
                     .font(.system(size: 9)).lineLimit(1).truncationMode(.middle).foregroundStyle(.white.opacity(0.38))
-            }.padding(.horizontal, 10).frame(maxWidth: .infinity, alignment: .leading).frame(height: 44)
+            }.padding(.horizontal, 10).frame(maxWidth: .infinity, alignment: .leading).frame(height: BubbleLayout.cardDetailsHeight)
                 .contentShape(Rectangle()).onTapGesture(perform: preview)
-            if editing {
-                VStack(alignment: .leading, spacing: 5) {
-                    MaterialNoteEditor(store: store, itemID: item.id, title: item.title).frame(height: 56)
-                    HStack { Spacer(); Button("完成", action: store.finishNoteEditing).buttonStyle(.plain).font(.system(size: 10, weight: .medium)).foregroundStyle(accent).padding(.horizontal, 8).padding(.vertical, 3).background(noteBackground, in: Capsule()) }
-                }.padding(9).background(.black.opacity(0.15)).padding(.horizontal, 7).padding(.bottom, 7)
-            } else if hasNote {
+            if !editing && hasNote {
                 Button { store.editNote(item.id) } label: {
-                    HStack(alignment: .top, spacing: 3) {
-                        Text("“").font(.system(size: 14, weight: .semibold))
-                        Text(item.note ?? "").font(.system(size: 10)).lineLimit(2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Text("”").font(.system(size: 14, weight: .semibold))
-                            .frame(maxHeight: .infinity, alignment: .bottom)
-                    }
-                    .foregroundStyle(accent).padding(.horizontal, 8).padding(.vertical, 4)
-                    .frame(height: 30)
-                    .background(noteBackground.opacity(0.94), in: RoundedRectangle(cornerRadius: 9))
-                }.buttonStyle(.plain).padding(.horizontal, 10).frame(height: 38).help("编辑文件说明")
+                    Text(verbatim: "“\(item.note ?? "")”")
+                        .font(.system(size: 10)).foregroundStyle(.black)
+                        .lineLimit(2).truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }.buttonStyle(.plain).padding(.horizontal, 10).frame(height: BubbleLayout.noteSummaryHeight).help("编辑文件说明")
             }
         }
-        .frame(width: BubbleLayout.cardWidth)
+        .frame(width: BubbleLayout.cardWidth, height: BubbleLayout.cardHeight)
         .clipShape(RoundedRectangle(cornerRadius: 24))
         .basketGlass(cornerRadius: 24)
         .onHover { hovered = $0 }
@@ -240,6 +229,19 @@ private struct MaterialCard: View {
         .accessibilityAction(named: "删除") { store.remove(item.id) }
         .accessibilityAction(named: "切换副本或源地址") { store.changeMode(item.id, to: item.isReference ? .copy : .reference) }
     }
+    private var noteEditor: some View {
+        VStack(spacing: 5) {
+            MaterialNoteEditor(store: store, itemID: item.id, title: item.title)
+            HStack {
+                Spacer()
+                Button("完成", action: store.finishNoteEditing)
+                    .buttonStyle(.plain).font(.system(size: 10, weight: .medium)).foregroundStyle(accent)
+                    .padding(.horizontal, 8).frame(height: 20).background(noteBackground, in: Capsule())
+            }
+        }
+        .padding(.horizontal, 10).padding(.top, 34).padding(.bottom, 5)
+    }
+
     private var actions: some View {
         HStack(spacing: 4) {
             action("text.bubble", label: hasNote ? "编辑文件说明" : "添加文件说明") { store.editNote(item.id) }
@@ -261,7 +263,7 @@ private struct MaterialCard: View {
                 if let thumbnail = store.thumbnail(for: item) { Image(nsImage: thumbnail).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: .infinity) }
                 else { Image(systemName: "photo").font(.system(size: 30)).foregroundStyle(accent).frame(maxWidth: .infinity, maxHeight: .infinity) }
             case .text:
-                Text(item.text ?? "").font(.system(size: 11)).lineSpacing(3).lineLimit(4).foregroundStyle(.white.opacity(0.72))
+                Text(item.text ?? "").font(.system(size: 11)).lineSpacing(3).lineLimit(hasNote ? 2 : 4).foregroundStyle(.white.opacity(0.72))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).padding(.horizontal, 12).padding(.top, 34)
             case .link:
                 VStack(alignment: .leading, spacing: 7) {

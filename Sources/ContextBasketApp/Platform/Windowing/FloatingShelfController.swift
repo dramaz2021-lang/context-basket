@@ -4,6 +4,17 @@ import QuartzCore
 import Combine
 
 @MainActor
+enum BasketIconMenu {
+    static func make() -> NSMenu {
+        let menu = NSMenu()
+        let quit = NSMenuItem(title: "退出 context basket", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        quit.target = NSApp
+        menu.addItem(quit)
+        return menu
+    }
+}
+
+@MainActor
 final class FloatingShelfController {
     let panel: ShelfPanel
     private let store: BasketStore
@@ -24,7 +35,7 @@ final class FloatingShelfController {
         panel.contentView = compactView
         updateSize()
         setFrame(size: compactSize, animate: false)
-        sizeObservation = store.$items.combineLatest(store.$noteEditorID, store.$prompt, store.$errorMessage).dropFirst()
+        sizeObservation = store.$items.combineLatest(store.$prompt, store.$errorMessage).dropFirst()
             .receive(on: RunLoop.main).sink { [weak self] _ in self?.updateSize() }
     }
 
@@ -34,7 +45,7 @@ final class FloatingShelfController {
 
     func updateSize() {
         let available = (panel.screen ?? NSScreen.main)?.visibleFrame.height ?? 800
-        expandedSize.height = BubbleLayout.expandedHeight(items: store.items, noteEditorID: store.noteEditorID, prompt: store.prompt, hasError: store.errorMessage != nil, available: available)
+        expandedSize.height = BubbleLayout.expandedHeight(items: store.items, prompt: store.prompt, hasError: store.errorMessage != nil, available: available)
         guard !isCollapsed else { return }
         setFrame(size: expandedSize, animate: false)
     }
@@ -96,7 +107,7 @@ struct ShelfAnchorView: View {
         .accessibilityLabel("context basket 悬浮图标，\(store.items.count) 项材料，\(expanded ? "点击收起" : "点击展开")")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { toggle() }
-        .help(expanded ? "点击收起 · 拖动图标可移动" : "点击展开 · 拖文件到此展开 · 拖动图标可移动")
+        .help(expanded ? "点击收起 · 右键退出 · 拖动图标可移动" : "点击展开 · 右键退出 · 拖文件到此展开 · 拖动图标可移动")
     }
 }
 
@@ -107,7 +118,16 @@ private struct CompactHandle: NSViewRepresentable {
         private var downEvent: NSEvent?
         private var moved = false
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-        override func mouseDown(with event: NSEvent) { downEvent = event; moved = false }
+        override func menu(for event: NSEvent) -> NSMenu? { BasketIconMenu.make() }
+        override func mouseDown(with event: NSEvent) {
+            if event.modifierFlags.contains(.control) {
+                downEvent = nil
+                NSMenu.popUpContextMenu(BasketIconMenu.make(), with: event, for: self)
+                return
+            }
+            downEvent = event
+            moved = false
+        }
         override func mouseDragged(with event: NSEvent) {
             guard let window, let downEvent, !moved else { return }
             moved = true
@@ -116,7 +136,11 @@ private struct CompactHandle: NSViewRepresentable {
             window.performDrag(with: downEvent)
             window.alphaValue = alpha
         }
-        override func mouseUp(with event: NSEvent) { if !moved { expand() }; downEvent = nil }
+        override func mouseUp(with event: NSEvent) {
+            guard downEvent != nil else { return }
+            if !moved { expand() }
+            downEvent = nil
+        }
     }
     func makeNSView(context: Context) -> Handle { let view = Handle(); view.expand = expand; return view }
     func updateNSView(_ view: Handle, context: Context) { view.expand = expand }

@@ -108,8 +108,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = BasketArtwork.image(size: 20, template: true)
         statusItem.button?.target = self
-        statusItem.button?.action = #selector(showShelf)
-        statusItem.button?.toolTip = "显示 context basket"
+        statusItem.button?.action = #selector(statusIconClicked(_:))
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        statusItem.button?.toolTip = "点击显示 context basket · 右键退出"
+    }
+
+    @objc private func statusIconClicked(_ sender: NSStatusBarButton) {
+        if let event = NSApp.currentEvent, event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
+            NSMenu.popUpContextMenu(BasketIconMenu.make(), with: event, for: sender)
+        } else {
+            showShelf()
+        }
     }
 
     @objc private func showShelf() { shelfController.show() }

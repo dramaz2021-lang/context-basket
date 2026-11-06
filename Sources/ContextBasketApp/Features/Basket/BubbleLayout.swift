@@ -13,6 +13,8 @@ enum BubbleLayout {
     static let collectionWidth = expandedWidth
     static let cardWidth = (collectionWidth - gap) / 2
     static let cardHeight: CGFloat = 154
+    static let cardDetailsHeight: CGFloat = 44
+    static let noteSummaryHeight: CGFloat = 38
     static let baseHeight = headerHeight + gap * 2 + minimumPromptHeight + cardHeight
 
     static var promptFont: NSFont { .systemFont(ofSize: 13) }
@@ -31,20 +33,13 @@ enum BubbleLayout {
 
     static func addSlotCount(itemCount: Int) -> Int { itemCount.isMultiple(of: 2) ? 2 : 1 }
 
-    static func collectionHeight(items: [Material], noteEditorID: UUID?) -> CGFloat {
-        let heights = items.map { item -> CGFloat in
-            cardHeight + (item.id == noteEditorID ? 94 : ((item.note ?? "").isEmpty ? 0 : 38))
-        } + Array(repeating: cardHeight, count: addSlotCount(itemCount: items.count))
-        var total: CGFloat = 0
-        for index in stride(from: 0, to: heights.count, by: 2) {
-            total += max(heights[index], heights[index + 1])
-            if index > 0 { total += gap }
-        }
-        return total
+    static func collectionHeight(items: [Material]) -> CGFloat {
+        let rows = CGFloat((items.count + addSlotCount(itemCount: items.count)) / 2)
+        return rows * cardHeight + (rows - 1) * gap
     }
 
-    static func expandedHeight(items: [Material], noteEditorID: UUID?, prompt: String, hasError: Bool = false, available: CGFloat) -> CGFloat {
-        let height = headerHeight + gap * 2 + promptHeight(for: prompt) + collectionHeight(items: items, noteEditorID: noteEditorID) + (hasError ? 64 : 0)
+    static func expandedHeight(items: [Material], prompt: String, hasError: Bool = false, available: CGFloat) -> CGFloat {
+        let height = headerHeight + gap * 2 + promptHeight(for: prompt) + collectionHeight(items: items) + (hasError ? 64 : 0)
         return min(available - 16, height)
     }
 }

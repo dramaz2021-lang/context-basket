@@ -14,6 +14,7 @@ struct PromptTextEditor: NSViewRepresentable {
         scroll.autohidesScrollers = true
         scroll.borderType = .noBorder
         let editor = PromptTextView(frame: .zero)
+        editor.placeholder = "输入指令"
         editor.drops = drops
         editor.delegate = context.coordinator
         editor.isRichText = false
@@ -23,8 +24,8 @@ struct PromptTextEditor: NSViewRepresentable {
         editor.isAutomaticDashSubstitutionEnabled = false
         editor.drawsBackground = false
         editor.font = BubbleLayout.promptFont
-        editor.textColor = .white.withAlphaComponent(0.9)
-        editor.insertionPointColor = .white
+        editor.textColor = .black
+        editor.insertionPointColor = .black
         editor.textContainerInset = .zero
         editor.isVerticallyResizable = true
         editor.isHorizontallyResizable = false
@@ -53,7 +54,7 @@ struct PromptTextEditor: NSViewRepresentable {
     }
 }
 
-final class PromptTextView: NSTextView {
+final class PromptTextView: PlaceholderTextView {
     var drops: MaterialDropCoordinator?
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
