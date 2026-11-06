@@ -1,5 +1,7 @@
 # 🧺 context basket
 
+**简体中文** | [English](README.en.md)
+
 > **把散落各处的上下文装进一个篮子，一键交给 AI。**
 
 写 Prompt 时，你是不是也常常这样：在浏览器复制一段文字，在 Finder 找一份文件，再截一张图，然后在聊天框里来回粘贴，生怕漏掉什么？
@@ -47,7 +49,7 @@ bash scripts/build-app.sh     # 构建应用
 open "dist/context basket.app"
 ```
 
-> 构建产物使用本机临时签名，只适合在本机运行，并且只支持本机的 CPU 架构。正式的 Developer ID 签名、公证和跨机器分发还在路上。
+> 构建产物使用本机临时签名，只适合在本机运行，并且只支持本机的 CPU 架构。正式的 Developer ID 签名、公证和预编译安装包还在路上。
 
 ## 📦 一些细节
 
@@ -83,6 +85,12 @@ open "dist/context basket.app"
 - [架构](docs/architecture.md)：代码如何组织
 - [验证记录](docs/compatibility.md)：每个版本实际测过什么
 - [开发顺序](docs/roadmap.md)：一路走来的版本演进
+- [参与贡献](CONTRIBUTING.md)：提 Issue、改代码之前先看这里
+- [安全策略](SECURITY.md)：发现安全问题时如何私下报告
+
+## 📄 许可证
+
+本项目基于 [MIT 许可证](LICENSE) 开源。
 
 ---
 
