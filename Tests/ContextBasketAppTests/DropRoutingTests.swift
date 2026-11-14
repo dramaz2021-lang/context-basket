@@ -34,7 +34,7 @@ import Testing
         board.writeObjects([file as NSURL])
         let store = BasketStore(library: library)
         store.setImportMode(.reference)
-        let drops = MaterialDropCoordinator(store: store)
+        let drops = MaterialDropCoordinator(store: store, presentation: ShelfPresentation(store: store))
         #expect(drops.receive(board, at: .collectionLeft))
         #expect(drops.receive(board, at: .collectionRight))
         try await finishImports(store)
@@ -61,9 +61,10 @@ import Testing
         let store = BasketStore(library: library)
         store.setPrompt("保留我的指令")
         store.setImportMode(.reference)
-        let drops = MaterialDropCoordinator(store: store)
+        let ui = ShelfPresentation(store: store)
+        let drops = MaterialDropCoordinator(store: store, presentation: ui)
         let editor = editor(store: store, drops: drops)
-        store.dropFeedback = DropFeedback(style: .fileChoices, mode: .reference)
+        ui.dropFeedback = DropFeedback(style: .fileChoices, mode: .reference)
         #expect(!editor.receiveDrop(board, at: .zero))
         #expect(!drops.receive(board, at: .prompt))
         #expect(!drops.receive(board, at: .other))
@@ -71,7 +72,7 @@ import Testing
         #expect(editor.string == "保留我的指令")
         #expect(store.prompt == "保留我的指令")
         #expect(store.items.isEmpty)
-        #expect(store.dropFeedback == nil)
+        #expect(ui.dropFeedback == nil)
     }
 
     @Test func rawImageOverPromptIsIgnoredAndNeverTextAttachment() async throws {
@@ -87,14 +88,15 @@ import Testing
         board.writeObjects([item])
         let store = BasketStore(library: library)
         store.setPrompt("原来的任务")
-        let drops = MaterialDropCoordinator(store: store)
+        let ui = ShelfPresentation(store: store)
+        let drops = MaterialDropCoordinator(store: store, presentation: ui)
         let editor = editor(store: store, drops: drops)
         #expect(!editor.receiveDrop(board, at: .zero))
         try await finishImports(store)
         #expect(editor.string == "原来的任务")
         #expect(store.items.isEmpty)
         #expect(store.prompt == "原来的任务")
-        #expect(store.dropFeedback == nil)
+        #expect(ui.dropFeedback == nil)
         var containsAttachment = false
         editor.textStorage?.enumerateAttribute(.attachment, in: NSRange(location: 0, length: (editor.string as NSString).length)) { value, _, _ in
             if value != nil { containsAttachment = true }
@@ -111,7 +113,7 @@ import Testing
         text.setString("先检查结构。\n保留空格  ", forType: .string)
         board.writeObjects([text])
         let store = BasketStore(library: library)
-        let drops = MaterialDropCoordinator(store: store)
+        let drops = MaterialDropCoordinator(store: store, presentation: ShelfPresentation(store: store))
         let editor = editor(store: store, drops: drops)
         #expect(editor.receiveDrop(board, at: .zero))
         #expect(editor.string == "先检查结构。\n保留空格  ")
@@ -129,7 +131,8 @@ import Testing
         _ = NSApplication.shared
         let library = try library()
         defer { try? FileManager.default.removeItem(at: library.directory) }
-        let drops = MaterialDropCoordinator(store: BasketStore(library: library))
+        let store = BasketStore(library: library)
+        let drops = MaterialDropCoordinator(store: store, presentation: ShelfPresentation(store: store))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 700), styleMask: .borderless, backing: .buffered, defer: false)
         let content = try #require(window.contentView)
         let addBubble = NSView(frame: NSRect(x: 0, y: 0, width: 224, height: 154))
@@ -188,7 +191,7 @@ import Testing
             host.layoutSubtreeIfNeeded()
             try await Task.sleep(for: .milliseconds(100))
             host.layoutSubtreeIfNeeded()
-            let slots = markers(in: host).filter { abs($0.bounds.width - BubbleLayout.cardWidth) < 1 && !$0.isHiddenOrHasHiddenAncestor }
+            let slots = markers(in: host).filter { $0.cardID == nil && abs($0.bounds.width - BubbleLayout.cardWidth) < 1 && !$0.isHiddenOrHasHiddenAncestor }
             #expect(slots.count == expected)
             for slot in slots {
                 let left = slot.convert(NSPoint(x: slot.bounds.width * 0.25, y: slot.bounds.midY), to: nil)
@@ -204,5 +207,44 @@ import Testing
         try await checkSlots(2)
         store.clearBasket()
         try await checkSlots(2)
+    }
+
+    @Test func droppingACardOnAnotherMovesItThereAndNothingElse() async throws {
+        _ = NSApplication.shared
+        let library = try library()
+        defer { try? FileManager.default.removeItem(at: library.directory) }
+        let store = BasketStore(library: library)
+        for task in store.add([.text("一"), .text("二"), .text("三")]) { await task.value }
+        let ids = store.items.map(\.id)
+        let ui = ShelfPresentation(store: store)
+        let drops = MaterialDropCoordinator(store: store, presentation: ui)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 700), styleMask: .borderless, backing: .buffered, defer: false)
+        let content = try #require(window.contentView)
+        for (index, id) in ids.enumerated() {
+            let card = NSView(frame: NSRect(x: 0, y: CGFloat(index) * 160, width: 224, height: 154))
+            content.addSubview(card)
+            drops.registerCard(card, id: id)
+        }
+        func drag(_ id: UUID) -> NSPasteboard {
+            let board = NSPasteboard.withUniqueName()
+            let item = NSPasteboardItem()
+            item.setString("file:///tmp/PROMPT.txt", forType: .fileURL)
+            item.setString(id.uuidString, forType: MaterialDropCoordinator.materialType)
+            board.writeObjects([item])
+            return board
+        }
+        let third = drag(ids[2])
+        defer { third.releaseGlobally() }
+        #expect(drops.reorder(third, at: NSPoint(x: 100, y: 50)))
+        #expect(store.items.map(\.id) == [ids[2], ids[0], ids[1]])
+        #expect(!drops.reorder(third, at: NSPoint(x: 100, y: 370))) // Dropped on itself.
+        #expect(!drops.reorder(third, at: NSPoint(x: 400, y: 600))) // Dropped on no card.
+        let foreign = drag(UUID())
+        defer { foreign.releaseGlobally() }
+        #expect(!drops.reorder(foreign, at: NSPoint(x: 100, y: 50)))
+        #expect(store.items.map(\.id) == [ids[2], ids[0], ids[1]])
+        store.move(ids[2], to: 99)
+        #expect(store.items.map(\.id) == [ids[0], ids[1], ids[2]])
+        #expect(try library.loadDocument().items.map(\.id) == ids)
     }
 }

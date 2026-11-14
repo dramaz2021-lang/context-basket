@@ -1,6 +1,7 @@
 import AppKit
 
-/// Observes new clipboard ownership only; launching or resuming never imports old content.
+/// Collects while enabled, which is while the basket is unfolded. Enabling records the
+/// current clipboard without importing it, so earlier copies are never picked up.
 @MainActor
 final class ClipboardMonitor {
     static let sourceType = NSPasteboard.PasteboardType("org.nspasteboard.source")
@@ -56,7 +57,7 @@ final class ClipboardMonitor {
         let types = Set(pasteboard.types ?? [])
         guard types.isDisjoint(with: Self.ignoredTypes),
               pasteboard.string(forType: Self.sourceType) != Self.sourceIdentifier else { return [] }
-        let incoming = DropReader.read(pasteboard)
+        let incoming = DropReader.read(pasteboard).filter { !store.contains($0) }
         // A producer can replace its data while it is being read; retry the new change next tick.
         guard pasteboard.changeCount == changeCount, !incoming.isEmpty else { return [] }
         return store.add(incoming, mode: .copy)

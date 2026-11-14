@@ -3,11 +3,13 @@ import SwiftUI
 
 final class ShelfHostingView: NSHostingView<ShelfView> {
     override var isOpaque: Bool { false }
+    let presentation: ShelfPresentation
     let drops: MaterialDropCoordinator
 
     init(store: BasketStore, close: @escaping () -> Void) {
-        drops = MaterialDropCoordinator(store: store)
-        super.init(rootView: ShelfView(store: store, drops: drops, close: close))
+        presentation = ShelfPresentation(store: store)
+        drops = MaterialDropCoordinator(store: store, presentation: presentation)
+        super.init(rootView: ShelfView(store: store, ui: presentation, drops: drops, close: close))
         sizingOptions = []
         registerForDraggedTypes(DropReader.types)
         wantsLayer = true
@@ -25,6 +27,9 @@ final class ShelfHostingView: NSHostingView<ShelfView> {
     override func draggingExited(_ sender: NSDraggingInfo?) { drops.end() }
     override func draggingEnded(_ sender: NSDraggingInfo) { drops.end() }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        drops.receive(sender.draggingPasteboard, at: drops.location(for: sender))
+        if sender.draggingPasteboard.types?.contains(MaterialDropCoordinator.materialType) == true {
+            return drops.reorder(sender.draggingPasteboard, at: sender.draggingLocation)
+        }
+        return drops.receive(sender.draggingPasteboard, at: drops.location(for: sender))
     }
 }

@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var store: BasketStore!
     private var statusItem: NSStatusItem!
     private var clipboardMonitor: ClipboardMonitor?
+    private var hotKey: GlobalHotKey?
     #if DEBUG
     private var dragHarness: NSWindow?
     #endif
@@ -72,11 +73,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         let monitor = ClipboardMonitor(store: store, pasteboard: pasteboard)
         clipboardMonitor = monitor
-        store.onClipboardCollectionChanged = { [weak monitor] enabled in monitor?.setEnabled(enabled) }
-        monitor.setEnabled(store.automaticallyCollectClipboard)
+        // Collecting follows the basket: unfolding starts it, folding stops it.
+        shelfController.onExpansionChanged = { [weak monitor] expanded in monitor?.setEnabled(expanded) }
+        hotKey = .toggleBasket { [weak self] in self?.shelfController.toggle() }
     }
 
-    func applicationWillTerminate(_ notification: Notification) { clipboardMonitor?.setEnabled(false) }
+    func applicationWillTerminate(_ notification: Notification) {
+        clipboardMonitor?.setEnabled(false)
+        store?.flush()
+    }
 
     private func configureMenu() {
         let mainMenu = NSMenu()
@@ -110,7 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.target = self
         statusItem.button?.action = #selector(statusIconClicked(_:))
         statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        statusItem.button?.toolTip = "点击显示 context basket · 右键退出"
+        statusItem.button?.toolTip = "点击显示 context basket · ⌃⌥B 展开或收起 · 右键退出"
     }
 
     @objc private func statusIconClicked(_ sender: NSStatusBarButton) {

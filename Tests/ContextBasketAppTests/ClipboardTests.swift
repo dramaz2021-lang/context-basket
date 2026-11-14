@@ -34,30 +34,64 @@ struct ClipboardTests {
         #expect(board.string(forType: .string) == text)
     }
 
-    @Test func pausingAndResumingDoesNotBackfillTheClipboard() async throws {
+    @Test func collectsOnlyWhileUnfoldedAndNeverBackfills() async throws {
+        _ = NSApplication.shared
         let library = try library()
         defer { try? FileManager.default.removeItem(at: library.directory) }
         let board = NSPasteboard.withUniqueName()
         defer { board.releaseGlobally() }
         let store = BasketStore(library: library)
         let monitor = ClipboardMonitor(store: store, pasteboard: board)
-        store.onClipboardCollectionChanged = { monitor.setEnabled($0) }
-        monitor.setEnabled(store.automaticallyCollectClipboard)
         defer { monitor.setEnabled(false) }
-        store.setAutomaticallyCollectClipboard(false)
-        write("暂停期间", to: board)
+        let panel = ShelfPanel(contentRect: NSRect(x: 50, y: 50, width: 460, height: 500), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        defer { panel.orderOut(nil) }
+        let controller = FloatingShelfController(panel: panel, store: store)
+        controller.onExpansionChanged = { monitor.setEnabled($0) }
+        write("折叠时复制", to: board)
         #expect(monitor.poll().isEmpty)
-        store.setAutomaticallyCollectClipboard(true)
+        controller.expand()
         #expect(monitor.poll().isEmpty)
-        write("恢复后新复制", to: board)
+        write("展开后新复制", to: board)
         for task in monitor.poll() { await task.value }
-        #expect(store.items.map(\.text) == ["恢复后新复制"])
+        controller.collapse()
+        write("再次折叠后复制", to: board)
+        #expect(monitor.poll().isEmpty)
+        controller.expand()
+        #expect(monitor.poll().isEmpty)
+        #expect(store.items.map(\.text) == ["展开后新复制"])
+    }
+
+    @Test func copyingWhatTheBasketAlreadyHoldsAddsNothing() async throws {
+        let library = try library()
+        defer { try? FileManager.default.removeItem(at: library.directory) }
+        let source = library.directory.appendingPathComponent("原文件.docx")
+        try "文件原文".write(to: source, atomically: true, encoding: .utf8)
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let store = BasketStore(library: library)
+        let monitor = ClipboardMonitor(store: store, pasteboard: board)
+        monitor.setEnabled(true)
+        defer { monitor.setEnabled(false) }
+        for _ in 0..<2 {
+            write("同一段文字", to: board)
+            for task in monitor.poll() { await task.value }
+            write("https://example.com/page", to: board)
+            for task in monitor.poll() { await task.value }
+            board.clearContents()
+            board.writeObjects([source as NSURL])
+            for task in monitor.poll() { await task.value }
+        }
+        #expect(store.items.map(\.kind) == [.text, .link, .file])
+        store.remove(store.items[0].id)
+        write("同一段文字", to: board)
+        for task in monitor.poll() { await task.value }
+        #expect(store.items.map(\.kind) == [.link, .file, .text])
     }
 
     @Test func copiedFilesAlwaysOwnCopiesEvenWhenManualDefaultIsReference() async throws {
         let library = try library()
         defer { try? FileManager.default.removeItem(at: library.directory) }
-        let source = library.directory.appendingPathComponent("原文件.txt")
+        let source = library.directory.appendingPathComponent("原文件.docx")
         try "文件原文".write(to: source, atomically: true, encoding: .utf8)
         let board = NSPasteboard.withUniqueName()
         defer { board.releaseGlobally() }
@@ -151,20 +185,15 @@ struct ClipboardTests {
         #expect(store.items.map(\.text) == ["正常内容"])
     }
 
-    @Test func collectionSettingPersistsAndOldDocumentsDefaultToEnabled() throws {
+    @Test func documentsWithTheRetiredCollectionSwitchStillLoad() throws {
         let library = try library()
         defer { try? FileManager.default.removeItem(at: library.directory) }
-        let json = #"{"version":2,"items":[],"prompt":"原来的指令","importMode":"reference"}"#
+        let json = #"{"version":2,"items":[],"prompt":"原来的指令","importMode":"reference","automaticallyCollectClipboard":false}"#
         try json.write(to: library.directory.appendingPathComponent("basket.json"), atomically: true, encoding: .utf8)
         let store = BasketStore(library: library)
-        #expect(store.automaticallyCollectClipboard)
+        #expect(store.errorMessage == nil)
         #expect(store.prompt == "原来的指令")
         #expect(store.importMode == .reference)
-        store.setAutomaticallyCollectClipboard(false)
-        let restored = BasketStore(library: library)
-        #expect(!restored.automaticallyCollectClipboard)
-        #expect(restored.prompt == "原来的指令")
-        #expect(restored.importMode == .reference)
     }
 
     @Test func timerCollectsWithoutAnExplicitPasteOrPoll() async throws {

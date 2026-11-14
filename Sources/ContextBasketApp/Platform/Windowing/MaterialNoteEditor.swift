@@ -3,10 +3,11 @@ import SwiftUI
 
 struct MaterialNoteEditor: NSViewRepresentable {
     @ObservedObject var store: BasketStore
+    let ui: ShelfPresentation
     let itemID: UUID
     let title: String
 
-    func makeCoordinator() -> Coordinator { Coordinator(store: store, itemID: itemID) }
+    func makeCoordinator() -> Coordinator { Coordinator(store: store, ui: ui, itemID: itemID) }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
@@ -22,8 +23,8 @@ struct MaterialNoteEditor: NSViewRepresentable {
         editor.allowsUndo = true
         editor.drawsBackground = false
         editor.font = .systemFont(ofSize: 11)
-        editor.textColor = .black
-        editor.insertionPointColor = .black
+        editor.textColor = .white
+        editor.insertionPointColor = .white
         editor.isAutomaticQuoteSubstitutionEnabled = false
         editor.isAutomaticDashSubstitutionEnabled = false
         editor.isVerticallyResizable = true
@@ -37,7 +38,7 @@ struct MaterialNoteEditor: NSViewRepresentable {
             guard let editor else { return }
             coordinator.store.setNote(coordinator.itemID, editor.string)
             editor.window?.makeFirstResponder(nil)
-            coordinator.store.finishNoteEditing()
+            coordinator.ui.finishNoteEditing()
         }
         scroll.documentView = editor
         DispatchQueue.main.async { [weak editor] in
@@ -56,8 +57,9 @@ struct MaterialNoteEditor: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         let store: BasketStore
+        let ui: ShelfPresentation
         let itemID: UUID
-        init(store: BasketStore, itemID: UUID) { self.store = store; self.itemID = itemID }
+        init(store: BasketStore, ui: ShelfPresentation, itemID: UUID) { self.store = store; self.ui = ui; self.itemID = itemID }
         func textDidChange(_ notification: Notification) {
             guard let editor = notification.object as? NSTextView else { return }
             store.setNote(itemID, editor.string)

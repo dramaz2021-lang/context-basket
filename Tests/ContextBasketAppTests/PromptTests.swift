@@ -21,10 +21,11 @@ struct PromptTests {
         #expect(store.promptText == expected)
         let board = NSPasteboard.withUniqueName()
         defer { board.releaseGlobally() }
-        store.presentPromptPreview()
+        let ui = ShelfPresentation(store: store)
+        ui.presentPromptPreview()
         store.copyPrompt(to: board)
         #expect(board.string(forType: .string) == expected)
-        #expect(store.statusMessage == nil)
+        #expect(store.errorMessage == nil)
         let files = try #require(board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL])
         #expect(files.map(\.lastPathComponent) == ["PROMPT.txt", "01-材料模板.docx"])
         #expect(try String(contentsOf: files[0], encoding: .utf8) == expected)
@@ -37,8 +38,9 @@ struct PromptTests {
         defer { try? FileManager.default.removeItem(at: library.directory) }
         let store = BasketStore(library: library)
         store.setPrompt("整理材料")
-        store.presentPromptPreview()
-        #expect(store.showPromptPreview)
+        let ui = ShelfPresentation(store: store)
+        ui.presentPromptPreview()
+        #expect(ui.showPromptPreview)
         let original = "原文 🌿\n  保留缩进  \n```swift\nlet x = 1\n```"
         for task in store.add([.text(original)]) { await task.value }
         #expect(store.promptText.contains(original))
@@ -105,10 +107,10 @@ struct PromptTests {
         let store = BasketStore(library: library)
         store.copyPrompt(to: board)
         #expect(board.string(forType: .string) == "保留现有剪贴板")
-        let source = library.directory.appendingPathComponent("original.txt")
+        let source = library.directory.appendingPathComponent("original.docx")
         try "原件".write(to: source, atomically: true, encoding: .utf8)
         for task in store.add([.file(source)], mode: .reference) { await task.value }
-        store.presentPromptPreview()
+        ShelfPresentation(store: store).presentPromptPreview()
         try FileManager.default.removeItem(at: source)
         store.copyPrompt(to: board)
         #expect(board.string(forType: .string) == "保留现有剪贴板")
@@ -180,7 +182,7 @@ struct PromptTests {
         let b = library.directory.appendingPathComponent("b")
         try FileManager.default.createDirectory(at: a, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: b, withIntermediateDirectories: true)
-        let first = a.appendingPathComponent("same.txt"), second = b.appendingPathComponent("same.txt")
+        let first = a.appendingPathComponent("same.docx"), second = b.appendingPathComponent("same.docx")
         try "FIRST".write(to: first, atomically: true, encoding: .utf8)
         try "SECOND".write(to: second, atomically: true, encoding: .utf8)
         let store = BasketStore(library: library)
@@ -188,7 +190,7 @@ struct PromptTests {
         for task in store.add([.file(first)], mode: .reference) { await task.value }
         store.setPrompt("指令一")
         let bundle = try store.export()
-        #expect(bundle.files.map(\.lastPathComponent) == ["PROMPT.txt", "01-same.txt", "02-same.txt"])
+        #expect(bundle.files.map(\.lastPathComponent) == ["PROMPT.txt", "01-same.docx", "02-same.docx"])
         #expect(try String(contentsOf: bundle.files[1], encoding: .utf8) == "FIRST")
         #expect(try String(contentsOf: bundle.files[2], encoding: .utf8) == "SECOND")
         store.setPrompt("指令二")
@@ -231,7 +233,7 @@ struct PromptTests {
     @Test func promisesCannotBecomeDanglingReferences() async throws {
         let library = try library()
         defer { try? FileManager.default.removeItem(at: library.directory) }
-        let source = library.directory.appendingPathComponent("temporary.txt")
+        let source = library.directory.appendingPathComponent("temporary.docx")
         try "临时传输".write(to: source, atomically: true, encoding: .utf8)
         let store = BasketStore(library: library)
         store.setImportMode(.reference)
@@ -268,5 +270,51 @@ struct PromptTests {
         let thumbnail = try #require(item.thumbnailPath)
         #expect(asset != thumbnail)
         #expect(try Data(contentsOf: library.url(for: asset)) == original)
+    }
+
+    @Test func verbatimTextIsDelimitedAndTextFilesAreNotSentTwice() async throws {
+        let library = try library()
+        defer { try? FileManager.default.removeItem(at: library.directory) }
+        let pasted = "第一段\n\n2. 原文里的编号\n\n最后一段  "
+        let notes = library.directory.appendingPathComponent("notes.md")
+        try "# 标题\n\n正文".write(to: notes, atomically: true, encoding: .utf8)
+        let binary = library.directory.appendingPathComponent("design.docx")
+        try Data("synthetic document".utf8).write(to: binary)
+        let store = BasketStore(library: library)
+        for task in store.add([.text(pasted), .file(notes), .file(binary), .link(URL(string: "https://example.com/a")!)]) { await task.value }
+        store.setNote(store.items[1].id, "会议记录")
+        #expect(store.promptText == """
+        附件说明：
+        1. 文字材料
+        <material-1>
+        \(pasted)
+        </material-1>
+
+        2. notes.md：会议记录
+        <material-2>
+        # 标题
+
+        正文
+        </material-2>
+
+        3. design.docx
+
+        4. example.com
+        https://example.com/a
+
+        """)
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let ui = ShelfPresentation(store: store)
+        #expect(!ui.justCopied)
+        ui.copyPrompt(to: board)
+        #expect(ui.justCopied)
+        let files = try #require(board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL])
+        #expect(files.map(\.lastPathComponent) == ["PROMPT.txt", "03-design.docx"])
+        store.setPrompt("内容变了，不再是已复制的那份")
+        #expect(!ui.justCopied)
+        store.clearBasket()
+        ui.copyPrompt(to: board)
+        #expect(!ui.justCopied)
     }
 }

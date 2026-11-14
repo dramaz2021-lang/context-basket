@@ -17,12 +17,12 @@ func makeDragHarness(store: BasketStore) -> NSWindow {
     let container = NSView(frame: NSRect(x: 0, y: 0, width: 750, height: 710))
     let source = DragFixtureSource(frame: NSRect(x: 0, y: 400, width: 280, height: 310))
     source.fixture = fixture
-    source.previewStore = testStore
     let preview = NSButton(title: "查看拖入分区", target: source, action: #selector(DragFixtureSource.previewZones))
     preview.frame = NSRect(x: 50, y: 369, width: 180, height: 28)
     let receiver = ExportFixtureReceiver(frame: NSRect(x: 15, y: 20, width: 255, height: 340))
     let destination = ShelfHostingView(store: testStore, close: {})
     destination.frame = NSRect(x: 285, y: 5, width: 460, height: 700)
+    source.preview = destination.presentation
     container.addSubview(source)
     container.addSubview(preview)
     container.addSubview(receiver)
@@ -33,9 +33,9 @@ func makeDragHarness(store: BasketStore) -> NSWindow {
 
 private final class DragFixtureSource: NSView, NSDraggingSource {
     var fixture: URL!
-    var previewStore: BasketStore!
+    var preview: ShelfPresentation!
     @objc func previewZones() {
-        previewStore.dropFeedback = previewStore.dropFeedback == nil ? DropFeedback(style: .fileChoices) : nil
+        preview.dropFeedback = preview.dropFeedback == nil ? DropFeedback(style: .fileChoices) : nil
     }
     override func draw(_ dirtyRect: NSRect) {
         NSColor.windowBackgroundColor.setFill()

@@ -21,7 +21,12 @@ final class FloatingShelfController {
     private var expandedView: ShelfHostingView!
     private var compactView: CompactShelfHostingView!
     private var sizeObservation: AnyCancellable?
-    private(set) var isCollapsed = true
+    private(set) var isCollapsed = true {
+        didSet { if isCollapsed != oldValue { onExpansionChanged?(!isCollapsed) } }
+    }
+    /// Called with true when the basket unfolds and false when it folds back to the icon.
+    var onExpansionChanged: ((Bool) -> Void)?
+    var presentation: ShelfPresentation { expandedView.presentation }
     private var expandedSize = NSSize(width: BubbleLayout.expandedWidth, height: BubbleLayout.baseHeight)
     private let compactSize = NSSize(width: 58, height: 58)
 
@@ -41,6 +46,11 @@ final class FloatingShelfController {
 
     func show() {
         panel.orderFrontRegardless()
+    }
+
+    func toggle() {
+        show()
+        if isCollapsed { expand() } else { collapse() }
     }
 
     func updateSize() {
@@ -107,7 +117,7 @@ struct ShelfAnchorView: View {
         .accessibilityLabel("context basket 悬浮图标，\(store.items.count) 项材料，\(expanded ? "点击收起" : "点击展开")")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { toggle() }
-        .help(expanded ? "点击收起 · 右键退出 · 拖动图标可移动" : "点击展开 · 右键退出 · 拖文件到此展开 · 拖动图标可移动")
+        .help(expanded ? "点击收起 · ⌃⌥B · 右键退出 · 拖动图标可移动" : "点击展开并开始收集复制的内容 · ⌃⌥B · 右键退出 · 拖文件到此展开 · 拖动图标可移动")
     }
 }
 
