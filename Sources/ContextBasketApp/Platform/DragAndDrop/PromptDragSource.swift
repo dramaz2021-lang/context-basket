@@ -4,6 +4,7 @@ import SwiftUI
 /// A native drag with one small translucent badge, even when many files travel with it.
 struct PromptDragSource: NSViewRepresentable {
     let store: BasketStore
+    let ui: ShelfPresentation
     var material: Material?
     var clicked: () -> Void = {}
     var hoverChanged: (Bool) -> Void = { _ in }
@@ -11,6 +12,7 @@ struct PromptDragSource: NSViewRepresentable {
     func makeNSView(context: Context) -> Handle { Handle() }
     func updateNSView(_ view: Handle, context: Context) {
         view.store = store
+        view.ui = ui
         view.material = material
         view.clicked = clicked
         view.hoverChanged = hoverChanged
@@ -18,6 +20,7 @@ struct PromptDragSource: NSViewRepresentable {
 
     final class Handle: NSView, NSDraggingSource {
         weak var store: BasketStore?
+        weak var ui: ShelfPresentation?
         var material: Material?
         var clicked: () -> Void = {}
         var hoverChanged: (Bool) -> Void = { _ in }
@@ -50,21 +53,27 @@ struct PromptDragSource: NSViewRepresentable {
                 let items = bundle.files.enumerated().map { index, file in
                     let board = NSPasteboardItem()
                     board.setString(file.absoluteString, forType: .fileURL)
-                    if index == 0 { board.setString(bundle.text, forType: .string) }
+                    if index == 0 {
+                        board.setString(bundle.text, forType: .string)
+                        if let material { board.setString(material.id.uuidString, forType: MaterialDropCoordinator.materialType) }
+                    }
                     let item = NSDraggingItem(pasteboardWriter: board)
                     item.setDraggingFrame(NSRect(x: point.x - 95, y: point.y - 24, width: 190, height: 48), contents: index == 0 ? badge : nil)
                     return item
                 }
-                store.isExporting = true
+                ui?.isExporting = true
                 let session = beginDraggingSession(with: items, event: event, source: self)
                 session.draggingFormation = .none
                 session.animatesToStartingPositionsOnCancelOrFail = true
             } catch { store.errorMessage = error.localizedDescription }
         }
 
-        func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
+        func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+            // Inside the basket a card is moved to a new position; elsewhere it is handed over.
+            context == .withinApplication ? [.copy, .move] : .copy
+        }
         func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-            store?.isExporting = false
+            ui?.isExporting = false
             hoverChanged(false)
         }
 

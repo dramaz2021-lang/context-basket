@@ -9,6 +9,7 @@ private typealias ViewState<Value> = SwiftUI.State<Value>
 
 struct ShelfView: View {
     @ObservedObject var store: BasketStore
+    @ObservedObject var ui: ShelfPresentation
     let drops: MaterialDropCoordinator
     let close: () -> Void
     private let addBubbleID = "add-material-bubble"
@@ -22,9 +23,9 @@ struct ShelfView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .preferredColorScheme(.dark)
-        .sheet(item: $store.preview) { MaterialPreview(item: $0, library: store.library) }
-        .sheet(isPresented: $store.showLocationEditor) { LocationEditor(store: store) }
-        .sheet(isPresented: $store.showPromptPreview) { PromptPreview(store: store) }
+        .sheet(item: $ui.preview) { MaterialPreview(item: $0, library: store.library) }
+        .sheet(isPresented: $ui.showLocationEditor) { LocationEditor(store: store) }
+        .sheet(isPresented: $ui.showPromptPreview) { PromptPreview(store: store, ui: ui) }
     }
 
     private var header: some View {
@@ -32,23 +33,16 @@ struct ShelfView: View {
             ShelfAnchorView(store: store, expanded: true, toggle: close)
                 .frame(width: BubbleLayout.iconSize, height: BubbleLayout.iconSize)
                 .background(DropAreaMarker(coordinator: drops, isIcon: true))
-            Button(action: store.presentPromptPreview) { Text("预览 Prompt") }
+            Button(action: ui.presentPromptPreview) { Text("预览 Prompt") }
                 .buttonStyle(PromptActionStyle()).disabled(!store.canExport)
                 .help("预览完整 Prompt").accessibilityLabel("预览完整 Prompt")
-            Button(action: store.copyPrompt) { Text("复制 Prompt") }
+            Button(action: ui.copyPrompt) { Text(ui.justCopied ? "已复制" : "复制 Prompt") }
                 .buttonStyle(PromptActionStyle()).disabled(!store.canExport)
                 .help("复制完整 Prompt 和附件，到 Agent 中粘贴")
-                .accessibilityLabel("复制完整 Prompt")
-            Button { store.setAutomaticallyCollectClipboard(!store.automaticallyCollectClipboard) } label: {
-                Image(systemName: store.automaticallyCollectClipboard ? "pause.fill" : "play.fill")
-                    .contentTransition(.symbolEffect(.replace))
-            }
-            .buttonStyle(HeaderIconStyle(active: store.automaticallyCollectClipboard))
-            .help(store.automaticallyCollectClipboard ? "自动添加剪贴板内容 · 点击暂停" : "已暂停添加剪贴板内容 · 点击继续")
-            .accessibilityLabel(store.automaticallyCollectClipboard ? "暂停自动添加剪贴板内容" : "继续自动添加剪贴板内容")
-            Button(action: store.clearBasket) { Image(systemName: "xmark") }
+                .accessibilityLabel(ui.justCopied ? "已复制完整 Prompt" : "复制完整 Prompt")
+            Button(action: store.clearBasket) { Image(systemName: "trash") }
                 .buttonStyle(HeaderIconStyle()).disabled(!store.hasContent)
-                .help("清空当前指令和附件").accessibilityLabel("清空当前 Prompt 和附件")
+                .help("清空当前指令和附件，可撤销").accessibilityLabel("清空当前 Prompt 和附件")
         }.frame(height: BubbleLayout.headerHeight)
     }
 
@@ -66,7 +60,7 @@ struct ShelfView: View {
                 VStack(spacing: BubbleLayout.gap) {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: BubbleLayout.gap) {
                         ForEach(store.items) { item in
-                            MaterialCard(store: store, item: item).id(item.id)
+                            MaterialCard(store: store, ui: ui, drops: drops, item: item).id(item.id)
                         }
                         ForEach(0..<BubbleLayout.addSlotCount(itemCount: store.items.count), id: \.self) { slot in
                             addBubble(slot: slot).id("\(addBubbleID)-\(slot)")
@@ -86,7 +80,7 @@ struct ShelfView: View {
             .onChange(of: store.items.count) { _, _ in
                 DispatchQueue.main.async { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("\(addBubbleID)-0", anchor: .bottom) } }
             }
-            .onChange(of: store.noteEditorID) { _, id in
+            .onChange(of: ui.noteEditorID) { _, id in
                 if let id { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id) } }
             }
         }
@@ -95,7 +89,7 @@ struct ShelfView: View {
     }
 
     private func addBubble(slot: Int) -> some View {
-        let feedback = store.dropFeedback
+        let feedback = ui.dropFeedback
         let targeted = feedback != nil && !feedback!.overPrompt && (feedback!.targetSlot == nil || feedback!.targetSlot == slot)
         return ZStack {
             if targeted && feedback?.style == .fileChoices {
@@ -132,8 +126,8 @@ struct ShelfView: View {
 
     private var addMenu: some View {
         Menu {
-            Button("添加文件…", action: store.chooseFiles)
-            Button("添加链接或本机地址…") { store.showLocationEditor = true }
+            Button("添加文件…", action: ui.chooseFiles)
+            Button("添加链接或本机地址…") { ui.showLocationEditor = true }
             Button("粘贴为材料", action: store.paste)
             Menu("选文件与粘贴的默认方式") {
                 ForEach(FileImportMode.allCases, id: \.self) { mode in
@@ -142,9 +136,6 @@ struct ShelfView: View {
                     }
                 }
             }
-            Divider()
-            Button("撤销删除或清空", action: store.undoRemove).disabled(!store.canUndo)
-            Button("退出 context basket") { NSApp.terminate(nil) }
         } label: {
             Color.clear.frame(width: BubbleLayout.cardWidth, height: BubbleLayout.cardHeight)
         }
@@ -154,7 +145,7 @@ struct ShelfView: View {
 
     private func dropChoice(_ mode: FileImportMode) -> some View {
         let color = mode == .copy ? Color(red: 0.65, green: 0.83, blue: 0.73) : Color(red: 0.56, green: 0.73, blue: 0.97)
-        let selected = store.dropFeedback?.mode == mode
+        let selected = ui.dropFeedback?.mode == mode
         return VStack(spacing: 10) {
             Image(systemName: mode == .copy ? "doc.on.doc" : "link").font(.system(size: 22, weight: .light))
             Text(mode == .copy ? "副本" : "链接").font(.system(size: 12, weight: .medium))
@@ -169,11 +160,15 @@ struct ShelfView: View {
 
 private struct MaterialCard: View {
     @ObservedObject var store: BasketStore
+    @ObservedObject var ui: ShelfPresentation
+    let drops: MaterialDropCoordinator
     let item: Material
     @ViewState private var hovered = false
     private var hasNote: Bool { !(item.note ?? "").isEmpty }
-    private var editing: Bool { store.noteEditorID == item.id }
-    private func preview() { store.openMaterial(item) }
+    private var editing: Bool { ui.noteEditorID == item.id }
+    private var position: Int { store.items.firstIndex { $0.id == item.id } ?? 0 }
+    private var noteRowHeight: CGFloat { editing ? 0 : (hasNote ? BubbleLayout.noteSummaryHeight : BubbleLayout.notePromptHeight) }
+    private func preview() { ui.open(item) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -183,7 +178,7 @@ private struct MaterialCard: View {
                     noteEditor
                 } else {
                     cardContent
-                    PromptDragSource(store: store, material: item, clicked: preview, hoverChanged: { hovered = $0 })
+                    PromptDragSource(store: store, ui: ui, material: item, clicked: preview, hoverChanged: { hovered = $0 })
                 }
                 HStack {
                     Text(item.modeLabel).font(.system(size: 8, weight: .medium))
@@ -193,7 +188,7 @@ private struct MaterialCard: View {
                     if hovered || editing { actions }
                 }.padding(6)
             }
-            .frame(height: BubbleLayout.cardHeight - BubbleLayout.cardDetailsHeight - (!editing && hasNote ? BubbleLayout.noteSummaryHeight : 0))
+            .frame(height: BubbleLayout.cardHeight - BubbleLayout.cardDetailsHeight - noteRowHeight)
             .clipped()
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.title).font(.system(size: 11, weight: .medium)).lineLimit(1).truncationMode(.middle).foregroundStyle(.white.opacity(0.85))
@@ -201,40 +196,56 @@ private struct MaterialCard: View {
                     .font(.system(size: 9)).lineLimit(1).truncationMode(.middle).foregroundStyle(.white.opacity(0.38))
             }.padding(.horizontal, 10).frame(maxWidth: .infinity, alignment: .leading).frame(height: BubbleLayout.cardDetailsHeight)
                 .contentShape(Rectangle()).onTapGesture(perform: preview)
-            if !editing && hasNote {
-                Button { store.editNote(item.id) } label: {
-                    Text(verbatim: "“\(item.note ?? "")”")
-                        .font(.system(size: 10)).foregroundStyle(.black)
-                        .lineLimit(2).truncationMode(.middle)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }.buttonStyle(.plain).padding(.horizontal, 10).frame(height: BubbleLayout.noteSummaryHeight).help("编辑文件说明")
+            if !editing {
+                // The note is always one click away; an empty one shows where to write it.
+                Button { ui.editNote(item.id) } label: {
+                    Group {
+                        if hasNote {
+                            Text(verbatim: "“\(item.note ?? "")”").foregroundStyle(.white.opacity(0.92)).lineLimit(2).truncationMode(.middle)
+                        } else {
+                            Text("说明用途…").foregroundStyle(Color(nsColor: .placeholderTextColor)).lineLimit(1)
+                        }
+                    }
+                    .font(.system(size: 10)).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).padding(.horizontal, 10).frame(height: noteRowHeight).disabled(item.isLoading)
+                .help(hasNote ? "编辑文件说明" : "添加文件说明").accessibilityLabel(hasNote ? "编辑文件说明" : "添加文件说明")
             }
         }
         .frame(width: BubbleLayout.cardWidth, height: BubbleLayout.cardHeight)
         .clipShape(RoundedRectangle(cornerRadius: 24))
         .basketGlass(cornerRadius: 24)
+        .overlay {
+            if ui.reorderTarget == item.id { RoundedRectangle(cornerRadius: 24).strokeBorder(.white.opacity(0.9), lineWidth: 2) }
+        }
+        .background(DropAreaMarker(coordinator: drops, cardID: item.id))
         .onHover { hovered = $0 }
         .contextMenu {
-            Button(hasNote ? "编辑文件说明" : "添加文件说明") { store.editNote(item.id) }
+            Button(hasNote ? "编辑文件说明" : "添加文件说明") { ui.editNote(item.id) }
             Button("预览", action: preview)
             if item.sourceURL != nil {
                 Button(item.isReference ? "改为副本" : "改为源文件地址") { store.changeMode(item.id, to: item.isReference ? .copy : .reference) }.disabled(item.isLoading)
             }
             Divider()
+            Button("前移") { store.move(item.id, to: position - 1) }.disabled(position == 0)
+            Button("后移") { store.move(item.id, to: position + 1) }.disabled(position >= store.items.count - 1)
+            Divider()
             Button("删除材料") { store.remove(item.id) }
         }
         .accessibilityElement(children: .contain).accessibilityLabel(item.title)
         .accessibilityAction(named: "预览", preview)
-        .accessibilityAction(named: "添加文件说明") { store.editNote(item.id) }
+        .accessibilityAction(named: "添加文件说明") { ui.editNote(item.id) }
+        .accessibilityAction(named: "前移") { store.move(item.id, to: position - 1) }
+        .accessibilityAction(named: "后移") { store.move(item.id, to: position + 1) }
         .accessibilityAction(named: "删除") { store.remove(item.id) }
         .accessibilityAction(named: "切换副本或源地址") { store.changeMode(item.id, to: item.isReference ? .copy : .reference) }
     }
     private var noteEditor: some View {
         VStack(spacing: 5) {
-            MaterialNoteEditor(store: store, itemID: item.id, title: item.title)
+            MaterialNoteEditor(store: store, ui: ui, itemID: item.id, title: item.title)
             HStack {
                 Spacer()
-                Button("完成", action: store.finishNoteEditing)
+                Button("完成", action: ui.finishNoteEditing)
                     .buttonStyle(.plain).font(.system(size: 10, weight: .medium)).foregroundStyle(accent)
                     .padding(.horizontal, 8).frame(height: 20).background(noteBackground, in: Capsule())
             }
@@ -243,10 +254,7 @@ private struct MaterialCard: View {
     }
 
     private var actions: some View {
-        HStack(spacing: 4) {
-            action("text.bubble", label: hasNote ? "编辑文件说明" : "添加文件说明") { store.editNote(item.id) }
-            action("xmark", label: "删除材料") { store.remove(item.id) }
-        }
+        action("xmark", label: "删除材料") { store.remove(item.id) }
     }
     private func action(_ symbol: String, label: String, run: @escaping () -> Void) -> some View {
         Button(action: run) { Image(systemName: symbol).font(.system(size: 9, weight: .semibold)).frame(width: 23, height: 23)
@@ -297,6 +305,7 @@ private struct LocationEditor: View {
 
 private struct PromptPreview: View {
     @ObservedObject var store: BasketStore
+    @ObservedObject var ui: ShelfPresentation
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         VStack(spacing: 0) {
@@ -305,7 +314,7 @@ private struct PromptPreview: View {
             ScrollView { Text(store.promptText).font(.system(size: 12)).lineSpacing(5).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(20) }
             HStack {
                 Spacer()
-                Button("复制完整 Prompt", action: store.copyPrompt).disabled(!store.canExport)
+                Button(ui.justCopied ? "已复制" : "复制完整 Prompt", action: ui.copyPrompt).disabled(!store.canExport)
             }.padding(14)
         }.frame(width: 520, height: 480).preferredColorScheme(.dark)
     }
@@ -323,11 +332,10 @@ private struct PromptActionStyle: ButtonStyle {
 }
 
 private struct HeaderIconStyle: ButtonStyle {
-    var active = false
     @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.system(size: 17, weight: .medium))
-            .foregroundStyle(isEnabled ? .white.opacity(active ? 1 : 0.85) : .white.opacity(0.3))
+            .foregroundStyle(.white.opacity(isEnabled ? 0.85 : 0.3))
             .frame(width: BubbleLayout.iconSize, height: BubbleLayout.headerHeight)
             .basketGlass(cornerRadius: 22, interactive: isEnabled)
             .scaleEffect(configuration.isPressed ? 0.94 : 1)

@@ -3,13 +3,12 @@ import Testing
 @testable import ContextBasket
 
 @Suite @MainActor struct ClearBasketTests {
-    @Test func clearAndUndoRestoreTaskNotesAndAttachmentsWithoutTouchingSourceOrClipboardMode() async throws {
+    @Test func clearAndUndoRestoreTaskNotesAndAttachmentsWithoutTouchingSource() async throws {
         let library = try MaterialLibrary(directory: FileManager.default.temporaryDirectory.appendingPathComponent("ClearBasket-\(UUID())"))
         defer { try? FileManager.default.removeItem(at: library.directory) }
         let source = library.directory.appendingPathComponent("source.txt")
         try "原件".write(to: source, atomically: true, encoding: .utf8)
         let store = BasketStore(library: library)
-        store.setAutomaticallyCollectClipboard(false)
         for task in store.add([.file(source), .text("材料正文")]) { await task.value }
         let first = try #require(store.items.first)
         store.setPrompt("整理这两份材料")
@@ -19,7 +18,6 @@ import Testing
         store.clearBasket()
         #expect(store.items.isEmpty && store.prompt.isEmpty && !store.canExport)
         #expect(store.canUndo)
-        #expect(!store.automaticallyCollectClipboard)
         #expect(try library.loadDocument().items.isEmpty)
         #expect(try library.loadDocument().prompt.isEmpty)
         #expect(try String(contentsOf: source, encoding: .utf8) == "原件")

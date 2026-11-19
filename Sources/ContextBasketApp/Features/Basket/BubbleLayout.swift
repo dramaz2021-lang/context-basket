@@ -15,6 +15,7 @@ enum BubbleLayout {
     static let cardHeight: CGFloat = 154
     static let cardDetailsHeight: CGFloat = 44
     static let noteSummaryHeight: CGFloat = 38
+    static let notePromptHeight: CGFloat = 24
     static let baseHeight = headerHeight + gap * 2 + minimumPromptHeight + cardHeight
 
     static var promptFont: NSFont { .systemFont(ofSize: 13) }

@@ -14,7 +14,7 @@ Sound familiar? You copy a paragraph from the browser, dig up a file in Finder, 
 
 ## 💡 Why you'll love it
 
-- **📋 Copy to collect**: copy text, an image, a URL or a file in any app and it lands in the basket automatically. No window switching.
+- **📋 Unfold to collect**: click the icon (or press ⌃⌥B) to unfold the basket; from then on, text, images, URLs and files you copy in any app land in it automatically. Fold it and collecting stops.
 - **🖱️ Just drag it in**: drop a file on an add slot. The green zone saves an independent copy; the blue zone only references the original file path.
 - **📝 A note for every item**: tell the AI "this is for reference" or "focus on the third paragraph" so it understands your intent at a glance.
 - **🚀 Copy the full prompt in one click**: the task, item notes and all attachment copies are copied together, so you paste only once.
@@ -28,13 +28,13 @@ context basket **does not call any model**. It never summarizes, rewrites or gue
 
 - Materials, notes and tasks are stored locally in `Application Support/ContextBasket`.
 - Copying never touches the network. URLs are kept as links; web pages are never downloaded.
-- Automatic clipboard collection can be paused or resumed from the top bar at any time, and the choice survives restarts.
+- The clipboard is collected only while the basket is unfolded; folded to its icon, it does not read what you copy. Text, links and files the basket already holds are not collected twice.
 - Only newly copied content is collected; earlier clipboard history is never back-filled. Content marked as concealed, transient or auto-generated (for example, passwords copied from a password manager) is skipped.
 - Prompts copied by the app itself are never collected back.
 
 ## 🎬 Get started in four steps
 
-1. **Collect**: copy content in other apps, or drag files straight into the basket.
+1. **Collect**: unfold the basket, then copy content in other apps or drag files straight into it.
 2. **Annotate**: add a short note to any item that needs one, then write your task in the instruction box.
 3. **Check**: click **Preview** to see the full prompt.
 4. **Deliver**: click **Copy**, then paste into your agent's input box and send. 🎉
@@ -55,13 +55,14 @@ open "dist/context basket.app"
 
 ## 📦 The details
 
-- When copying the full prompt: with attachments, `PROMPT.txt` and every attachment copy are copied together; with text only, the text itself is copied.
-- The prompt keeps only the task, attachment names and notes. Collected text and the contents of readable text files are included verbatim.
+- When copying the full prompt: with attachments, `PROMPT.txt` and every attachment copy are copied together; with text only, the text itself is copied. The button briefly reads "已复制" (copied) on success.
+- The prompt keeps only the task, attachment names and notes. Collected text and the contents of readable text files are included verbatim between `<material-N>` tags; such text files are no longer attached as well.
+- Drag one card onto another to reorder, or use "前移" / "后移" in its context menu.
 - Items that reference a source file keep its original path; the original is never handed over as an attachment.
 - Each copied file is limited to 100 MB. Folders can be added as source references.
-- Every copy creates an independent snapshot in `exports/<UUID>/`, so previously copied content can still be pasted after you delete the items. These snapshots are not cleaned up automatically yet.
+- Every copy creates an independent snapshot in `exports/<UUID>/`, so previously copied content can still be pasted after you delete the items. The newest 3 snapshots and everything from the last 24 hours are kept; older ones are cleaned up automatically.
 - Click a card to preview it. Source references are revealed in Finder and opened in Quick Look; URLs open in your browser.
-- The **+** menu lets you choose files, add links, paste on demand, set the default import mode, undo and quit.
+- The **+** menu lets you choose files, add links, paste on demand and set the default import mode.
 - The instruction box accepts text only; dragged files and images are ignored.
 - Right-click (or Control-click) the floating icon or the menu bar icon to quit the app.
 

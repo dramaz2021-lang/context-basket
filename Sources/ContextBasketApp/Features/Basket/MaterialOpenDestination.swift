@@ -4,16 +4,16 @@ enum MaterialOpenDestination: Equatable {
     case inApp, sourceFile(URL), website(URL)
 
     static func resolve(_ item: Material) throws -> MaterialOpenDestination {
-        if item.isReference {
-            guard let url = item.sourceURL, url.isFileURL else { throw MaterialOpenError.missingSource }
-            guard FileManager.default.fileExists(atPath: url.path) else { throw MaterialOpenError.missingSource }
+        switch item.content {
+        case .reference(let url, _):
+            guard url.isFileURL, FileManager.default.fileExists(atPath: url.path) else { throw MaterialOpenError.missingSource }
             return .sourceFile(url)
-        }
-        if item.kind == .link {
-            guard let text = item.text, let url = DropReader.webURL(text) else { throw MaterialOpenError.invalidLink }
+        case .link(let text):
+            guard let url = DropReader.webURL(text) else { throw MaterialOpenError.invalidLink }
             return .website(url)
+        case .pending, .text, .copy:
+            return .inApp
         }
-        return .inApp
     }
 }
 
